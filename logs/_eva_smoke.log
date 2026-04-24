@@ -1,0 +1,284 @@
+2026-04-24 20:57:18,648 PAT INFO: Saving model to: models/./_eva_smoke
+2026-04-24 20:57:18,648 PAT INFO: Namespace(config_file='config/UrbanElementsReID_train_eva_smoke.yml', opts=[], local_rank=0)
+2026-04-24 20:57:18,648 PAT INFO: Loaded configuration file config/UrbanElementsReID_train_eva_smoke.yml
+2026-04-24 20:57:18,648 PAT INFO: 
+MODEL:
+  PRETRAIN_CHOICE: 'imagenet'
+  PRETRAIN_PATH: '/workspace/miuam_challenge_diff/pretrained'
+  IF_LABELSMOOTH: 'on'
+  IF_WITH_CENTER: 'no'
+  NAME: 'part_attention_vit'
+  NO_MARGIN: True
+  DEVICE_ID: ('0')
+  TRANSFORMER_TYPE: 'vit_large_patch14_eva_TransReID'
+  STRIDE_SIZE: [14, 14]
+
+INPUT:
+  SIZE_TRAIN: [224, 112]      # 16*14 by 8*14 → 128 tokens, same mem envelope as ViT-L baseline
+  SIZE_TEST: [224, 112]
+  REA:
+    ENABLED: False
+  PIXEL_MEAN: [0.5, 0.5, 0.5]
+  PIXEL_STD: [0.5, 0.5, 0.5]
+  LGT:
+    DO_LGT: True
+    PROB: 0.5
+
+DATASETS:
+  TRAIN: ('UrbanElementsReID',)
+  TEST: ('UrbanElementsReID_test',)
+  ROOT_DIR: '/workspace/Urban2026/'      # challenge-only
+
+DATALOADER:
+  SAMPLER: 'softmax_triplet'
+  NUM_INSTANCE: 4
+  NUM_WORKERS: 8
+
+SOLVER:
+  OPTIMIZER_NAME: 'Adam'
+  MAX_EPOCHS: 2
+  BASE_LR: 0.0001                        # lower LR — standard for MIM-distilled backbones; DINOv2's 3.5e-4 blew up
+  WARMUP_METHOD: 'linear'
+  WARMUP_EPOCHS: 10
+  WARMUP_FACTOR: 0.01
+  IMS_PER_BATCH: 64
+  LARGE_FC_LR: False
+  CHECKPOINT_PERIOD: 1
+  LOG_PERIOD: 30
+  EVAL_PERIOD: 1
+  WEIGHT_DECAY: 1e-4
+  WEIGHT_DECAY_BIAS: 1e-4
+  BIAS_LR_FACTOR: 2
+  SEED: 77
+  GRAD_CLIP: 1.0                         # safety net: AMP loss-scaler doesn't catch all NaN grads
+
+TEST:
+  EVAL: True
+  IMS_PER_BATCH: 64
+  RE_RANKING: False
+  WEIGHT: ''
+  NECK_FEAT: 'before'
+  FEAT_NORM: True
+
+LOG_ROOT: 'models/'
+TB_LOG_ROOT: './tb_log/'
+LOG_NAME: './_eva_smoke'
+
+2026-04-24 20:57:18,648 PAT INFO: Running with config:
+DATALOADER:
+  CAMERA_TO_DOMAIN: False
+  DELETE_REM: False
+  DROP_LAST: False
+  INDIVIDUAL: False
+  NAIVE_WAY: True
+  NUM_INSTANCE: 4
+  NUM_WORKERS: 8
+  SAMPLER: softmax_triplet
+DATASETS:
+  COMBINEALL: False
+  ROOT_DIR: /workspace/Urban2026/
+  TEST: ('UrbanElementsReID_test',)
+  TRAIN: ('UrbanElementsReID',)
+INPUT:
+  CJ:
+    BRIGHTNESS: 0.15
+    CONTRAST: 0.15
+    ENABLED: False
+    HUE: 0.1
+    PROB: 1.0
+    SATURATION: 0.1
+  DO_AUGMIX: False
+  DO_AUTOAUG: False
+  DO_FLIP: True
+  DO_PAD: True
+  FLIP_PROB: 0.5
+  LGT:
+    DO_LGT: True
+    PROB: 0.5
+  PADDING: 10
+  PADDING_MODE: constant
+  PIXEL_MEAN: [0.5, 0.5, 0.5]
+  PIXEL_STD: [0.5, 0.5, 0.5]
+  REA:
+    ENABLED: False
+    MEAN: [123.675, 116.28, 103.53]
+    PROB: 0.5
+  RPT:
+    ENABLED: False
+    PROB: 0.5
+  SIZE_TEST: [224, 112]
+  SIZE_TRAIN: [224, 112]
+LOG_NAME: ./_eva_smoke
+LOG_ROOT: models/
+MODEL:
+  ATT_DROP_RATE: 0.0
+  AUX_LOSS_WEIGHT: 0.1
+  CLUSTER_K: 10
+  COS_LAYER: False
+  DEEP_SUP: False
+  DEVICE: cuda
+  DEVICE_ID: 0
+  DIST_TRAIN: False
+  DROP_OUT: 0.0
+  DROP_PATH: 0.1
+  FINETUNE_FROM: 
+  FREEZE_PATCH_EMBED: True
+  ID_LOSS_TYPE: softmax
+  ID_LOSS_WEIGHT: 1.0
+  IF_LABELSMOOTH: on
+  IF_WITH_CENTER: no
+  LAST_STRIDE: 1
+  METRIC_LOSS_TYPE: triplet
+  NAME: part_attention_vit
+  NECK: bnneck
+  NO_MARGIN: True
+  NUM_AUX_LAYERS: 5
+  PATCH_EMBED_TYPE: 
+  PC_LOSS: True
+  PC_LR: 1.0
+  PC_SCALE: 0.02
+  PRETRAIN_CHOICE: imagenet
+  PRETRAIN_PATH: /workspace/miuam_challenge_diff/pretrained
+  SOFT_LABEL: True
+  SOFT_LAMBDA: 0.5
+  SOFT_WEIGHT: 0.5
+  STRIDE_SIZE: [14, 14]
+  TRANSFORMER_TYPE: vit_large_patch14_eva_TransReID
+  TRIPLET_LOSS_WEIGHT: 1.0
+SOLVER:
+  BASE_LR: 0.0001
+  BIAS_LR_FACTOR: 2
+  CENTER_LOSS_WEIGHT: 0.0005
+  CENTER_LR: 0.5
+  CHECKPOINT_PERIOD: 1
+  COSINE_MARGIN: 0.5
+  COSINE_SCALE: 30
+  EVAL_PERIOD: 1
+  GAMMA: 0.1
+  GRAD_CLIP: 1.0
+  IMS_PER_BATCH: 64
+  LARGE_FC_LR: False
+  LOG_PERIOD: 30
+  MARGIN: 0.3
+  MAX_EPOCHS: 2
+  MOMENTUM: 0.9
+  OPTIMIZER_NAME: Adam
+  SEED: 77
+  STEPS: (40, 70)
+  WARMUP_EPOCHS: 10
+  WARMUP_FACTOR: 0.01
+  WARMUP_METHOD: linear
+  WEIGHT_DECAY: 0.0001
+  WEIGHT_DECAY_BIAS: 0.0001
+TB_LOG_ROOT: ./tb_log/
+TEST:
+  DIST_MAT: dist_mat.npy
+  EVAL: True
+  FEAT_NORM: True
+  IMS_PER_BATCH: 64
+  NECK_FEAT: before
+  RE_RANKING: False
+  WEIGHT: 
+2026-04-24 20:57:18,712 PAT INFO: => Loaded UrbanElementsReID
+2026-04-24 20:57:18,712 PAT INFO:   ----------------------------------------
+2026-04-24 20:57:18,712 PAT INFO:   subset   | # ids | # images | # cameras
+2026-04-24 20:57:18,712 PAT INFO:   ----------------------------------------
+2026-04-24 20:57:18,712 PAT INFO:   train    |  1088 |    11175 |         3
+2026-04-24 20:57:18,712 PAT INFO:   ----------------------------------------
+2026-04-24 20:57:18,788 PAT INFO: => Loaded UrbanElementsReID_test
+2026-04-24 20:57:18,788 PAT INFO:   ----------------------------------------
+2026-04-24 20:57:18,788 PAT INFO:   subset   | # ids | # images | # cameras
+2026-04-24 20:57:18,788 PAT INFO:   ----------------------------------------
+2026-04-24 20:57:18,788 PAT INFO:   query    |     1 |      928 |         1
+2026-04-24 20:57:18,788 PAT INFO:   gallery  |     1 |     2844 |         3
+2026-04-24 20:57:18,788 PAT INFO:   ----------------------------------------
+using Transformer_type: part token vit as a backbone
+using stride: [14, 14], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 295 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/eva_large_patch14_196.pth
+===========building our part attention vit===========
+2026-04-24 20:57:28,656 PAT.train INFO: Number of parameter: 305.19M
+====== freeze patch_embed for stability ======
+using soft triplet loss for training
+label smooth on, numclasses: 1088
+======== using soft label ========
+2026-04-24 20:57:28,961 PAT.train INFO: start training
+saving tblog to ./tb_log/./_eva_smoke
+initialize the centers
+initialization done
+/workspace/miuam_challenge_diff/loss/myloss.py:29: UserWarning: This overload of addmm_ is deprecated:
+	addmm_(Number beta, Number alpha, Tensor mat1, Tensor mat2)
+Consider using one of the following signatures instead:
+	addmm_(Tensor mat1, Tensor mat2, *, Number beta, Number alpha) (Triggered internally at ../torch/csrc/utils/python_arg_parser.cpp:1519.)
+  dist_map.addmm_(1, -2, part_feat, part_centers.t())
+2026-04-24 20:58:20,595 PAT.train INFO:   [grad_norm pre-clip: 37.785 / clip_max: 1.0]
+2026-04-24 20:58:20,595 PAT.train INFO: Epoch[1] Iteration[30/159] total_loss: 13.629, reid_loss: 8.633, pc_loss: 4.996, Acc: 0.001, Base Lr: 1.09e-05
+2026-04-24 20:58:33,000 PAT.train INFO:   [grad_norm pre-clip: 11.641 / clip_max: 1.0]
+2026-04-24 20:58:33,001 PAT.train INFO: Epoch[1] Iteration[60/159] total_loss: 12.212, reid_loss: 8.412, pc_loss: 3.801, Acc: 0.001, Base Lr: 1.09e-05
+2026-04-24 20:58:45,634 PAT.train INFO:   [grad_norm pre-clip: 29.600 / clip_max: 1.0]
+2026-04-24 20:58:45,635 PAT.train INFO: Epoch[1] Iteration[90/159] total_loss: 11.504, reid_loss: 8.287, pc_loss: 3.217, Acc: 0.005, Base Lr: 1.09e-05
+2026-04-24 20:58:58,286 PAT.train INFO:   [grad_norm pre-clip: 12.575 / clip_max: 1.0]
+2026-04-24 20:58:58,286 PAT.train INFO: Epoch[1] Iteration[120/159] total_loss: 10.788, reid_loss: 8.219, pc_loss: 2.569, Acc: 0.009, Base Lr: 1.09e-05
+2026-04-24 20:59:10,963 PAT.train INFO:   [grad_norm pre-clip: 12.803 / clip_max: 1.0]
+2026-04-24 20:59:10,964 PAT.train INFO: Epoch[1] Iteration[150/159] total_loss: 10.287, reid_loss: 8.142, pc_loss: 2.145, Acc: 0.022, Base Lr: 1.09e-05
+2026-04-24 20:59:14,017 PAT.train INFO: Epoch 1 done. Time per batch: 0.424[s] Speed: 151.1[samples/s]
+2026-04-24 20:59:14,027 PAT.test INFO: Enter inferencing
+2026-04-24 20:59:25,784 PAT.test INFO: Validation Results 
+2026-04-24 20:59:25,785 PAT.test INFO: mAP: 100.0%
+2026-04-24 20:59:25,785 PAT.test INFO: CMC curve, Rank-1  :100.0%
+2026-04-24 20:59:25,785 PAT.test INFO: CMC curve, Rank-5  :100.0%
+2026-04-24 20:59:25,785 PAT.test INFO: CMC curve, Rank-10 :100.0%
+2026-04-24 20:59:25,785 PAT.test INFO: total inference time: 11.75
+2026-04-24 20:59:25,800 PAT.train INFO: =====best epoch: 1=====
+2026-04-24 20:59:40,144 PAT.train INFO:   [grad_norm pre-clip: 8.132 / clip_max: 1.0]
+2026-04-24 20:59:40,144 PAT.train INFO: Epoch[2] Iteration[30/159] total_loss: 7.583, reid_loss: 7.561, pc_loss: 0.022, Acc: 0.082, Base Lr: 2.08e-05
+2026-04-24 20:59:53,040 PAT.train INFO:   [grad_norm pre-clip: 7.380 / clip_max: 1.0]
+2026-04-24 20:59:53,040 PAT.train INFO: Epoch[2] Iteration[60/159] total_loss: 7.550, reid_loss: 7.521, pc_loss: 0.029, Acc: 0.076, Base Lr: 2.08e-05
+2026-04-24 21:00:06,073 PAT.train INFO:   [grad_norm pre-clip: 8.041 / clip_max: 1.0]
+2026-04-24 21:00:06,073 PAT.train INFO: Epoch[2] Iteration[90/159] total_loss: 7.548, reid_loss: 7.514, pc_loss: 0.034, Acc: 0.085, Base Lr: 2.08e-05
+2026-04-24 21:00:19,048 PAT.train INFO:   [grad_norm pre-clip: 7.674 / clip_max: 1.0]
+2026-04-24 21:00:19,048 PAT.train INFO: Epoch[2] Iteration[120/159] total_loss: 7.526, reid_loss: 7.488, pc_loss: 0.039, Acc: 0.092, Base Lr: 2.08e-05
+2026-04-24 21:00:32,019 PAT.train INFO:   [grad_norm pre-clip: 7.702 / clip_max: 1.0]
+2026-04-24 21:00:32,019 PAT.train INFO: Epoch[2] Iteration[150/159] total_loss: 7.483, reid_loss: 7.444, pc_loss: 0.039, Acc: 0.104, Base Lr: 2.08e-05
+2026-04-24 21:00:35,215 PAT.train INFO: Epoch 2 done. Time per batch: 0.438[s] Speed: 146.1[samples/s]
+2026-04-24 21:00:35,216 PAT.test INFO: Enter inferencing
+2026-04-24 21:00:46,782 PAT.test INFO: Validation Results 
+2026-04-24 21:00:46,783 PAT.test INFO: mAP: 100.0%
+2026-04-24 21:00:46,783 PAT.test INFO: CMC curve, Rank-1  :100.0%
+2026-04-24 21:00:46,783 PAT.test INFO: CMC curve, Rank-5  :100.0%
+2026-04-24 21:00:46,783 PAT.test INFO: CMC curve, Rank-10 :100.0%
+2026-04-24 21:00:46,783 PAT.test INFO: total inference time: 11.56
+using Transformer_type: part token vit as a backbone
+using stride: [14, 14], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 295 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/eva_large_patch14_196.pth
+/workspace/miuam_challenge_diff/.venv/lib/python3.10/site-packages/torch/nn/init.py:412: UserWarning: Initializing zero-element tensors is a no-op
+  warnings.warn("Initializing zero-element tensors is a no-op")
+===========building our part attention vit===========
+2026-04-24 21:00:57,439 PAT.train INFO: Number of parameter: 304.08M
+Loading trained model from models/./_eva_smoke/part_attention_vit_1.pth
+load weights from part_attention_vit_1.pth
+2026-04-24 21:00:58,159 PAT INFO: => Loaded UrbanElementsReID_test
+2026-04-24 21:00:58,160 PAT INFO:   ----------------------------------------
+2026-04-24 21:00:58,160 PAT INFO:   subset   | # ids | # images | # cameras
+2026-04-24 21:00:58,160 PAT INFO:   ----------------------------------------
+2026-04-24 21:00:58,160 PAT INFO:   query    |     1 |      928 |         1
+2026-04-24 21:00:58,160 PAT INFO:   gallery  |     1 |     2844 |         3
+2026-04-24 21:00:58,160 PAT INFO:   ----------------------------------------
+2026-04-24 21:00:58,160 PAT.test INFO: Enter inferencing
+2026-04-24 21:01:09,593 PAT.test INFO: Validation Results 
+2026-04-24 21:01:09,593 PAT.test INFO: mAP: 100.0%
+2026-04-24 21:01:09,593 PAT.test INFO: CMC curve, Rank-1  :100.0%
+2026-04-24 21:01:09,593 PAT.test INFO: CMC curve, Rank-5  :100.0%
+2026-04-24 21:01:09,593 PAT.test INFO: CMC curve, Rank-10 :100.0%
+2026-04-24 21:01:09,593 PAT.test INFO: total inference time: 11.18
+saving final checkpoint (best epoch re-saved, per-epoch checkpoints retained).
+done!

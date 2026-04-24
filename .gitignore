@@ -1,0 +1,49 @@
+# --- Environments ---
+.venv/
+venv/
+env/
+.hf_home/
+enviroments.sh
+
+# --- Python caches ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# --- Model checkpoints / weights (heavy) ---
+*.pth
+*.pt
+*.bin
+*.ckpt
+*.safetensors
+
+# --- Feature caches ---
+*.npy
+*.npz
+
+# --- TensorBoard / training artifacts ---
+tb_log/
+runs/
+wandb/
+
+# --- Raw dataset (keep loader .py files) ---
+# (no dataset directory currently tracked, but guard anyway)
+data/raw/
+data/images/
+data/*.zip
+data/*.tar*
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Explicitly keep CSVs, logs, configs, md ---
+!*.csv
+!*.md
+!*.yml
+!*.yaml
+!logs/
+!logs/*.log
