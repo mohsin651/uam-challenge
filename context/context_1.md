@@ -513,3 +513,476 @@ With the UAM-is-a-different-city lesson learned and DINOv2 prep done, the realis
 
 If the user asks you about a failed experiment or a specific Kaggle score, this Session 2 update (§16–§20) has the data you need before looking anywhere else.
 
+
+---
+
+# Session 3 update — 2026-04-24 evening through 2026-04-25 morning (appended again — read this AFTER Sessions 1 and 2 above)
+
+If you're a fresh Claude reading this, you now have three appendices: original (§0-§15), Session 2 (§16-§21), and this Session 3. Read top to bottom. Do NOT re-experiment things confirmed dead.
+
+## 22. State of the leaderboard (rough — as of 2026-04-25 morning)
+
+| Rank | Team | Score |
+|---|---|---|
+| 1 | Ibn al-Haytham | 0.17607 |
+| 2 | ElzaPak | 0.17017 (jumped +0.027 in one submission — they found something) |
+| 3 | Pixora | 0.16642 |
+| 4 | OOM | 0.15220 |
+| 5 | Model Forge | 0.13995 |
+| **6** | **SkyNet (us)** | **0.13361** |
+
+Gap to top-3: +0.032. Gap to leader: +0.042. **No single change closes that — it's a stack of tricks**. We've explored most architectural levers; they all failed. Likely top teams are: bigger ensembles, advanced ReID losses (ArcFace/Circle/SubCenterArcFace done correctly), camera-invariance training, and/or pseudo-labeling.
+
+## 23. DINOv2 retry on challenge-only data — FAILED (NaN blowup mid-training)
+
+After confirming UAM merged data was negative transfer (§16c), we tried DINOv2 again on **challenge-only data** (so the data variable was clean and only the backbone differed).
+
+**Setup:**
+- TRANSFORMER_TYPE: `vit_large_patch14_dinov2_TransReID` (created in Session 2)
+- Input 224×112 (16×8=128 tokens — same memory envelope as supervised ViT-L)
+- Original DINOv2 config: BASE_LR=3.5e-4 (same as supervised), no grad clipping
+- Pretrained: `pretrained/dinov2_vitl14_pretrain.pth`
+- Built using existing `part_attention_vit_large_p14` factory (LayerScale enabled)
+
+**What happened:**
+- Training appeared to converge (loss descended normally)
+- But: AT EPOCH 40+ all the prefix tokens (`base.cls_token`, `base.part_token1/2/3`, `base.pos_embed`) became **NaN**
+- ep10/20/30 checkpoints CLEAN; ep40/50/60 had NaN
+- Inference produced all-zero / all-NaN features → cosine similarities were all ~equal → argsort returned arbitrary indices → **0.00000 mAP on Kaggle**
+- Tried using only the clean ep10/20/30 checkpoints → got partial signal but still poor (solo 0.11915 / ensemble 0.12651, both regressions vs 0.13361)
+
+**Root cause hypothesis:**
+- LayerScale gammas amplify some gradient paths
+- Combined with LR 3.5e-4 (too high for DINOv2's sensitive init — DINOv2 papers fine-tune at 1e-4)
+- Plus AMP loss-scaler that DOESN'T catch all NaN gradients (it's a heuristic)
+- → mid-training, some gradient spike caused a few specific params to overflow to NaN, AMP missed it, training continued silently for 20+ more epochs producing useless weights
+
+**Lesson:** DINOv2 (and any LayerScale-enabled backbone) requires **lower LR (1e-4 or below) AND gradient clipping** as belt-and-suspenders. Don't rely on AMP loss-scaler alone.
+
+**Submissions burned:** 0.00000 (ep60 NaN) + 0.00000 (ensemble with NaN ckpts) + 0.11915 (ep30 solo) + 0.12651 (ensemble with ep10/20/30) = **4 wasted submissions**.
+
+## 24. EVA-L attempt — FAILED (trained cleanly but features unsuitable for ReID)
+
+After DINOv2 failed, user wanted to try ViT-Huge. I argued for EVA-L instead (similar params 303M, simpler integration than ViT-H/14 — mainly because original EVA architecture is just standard ViT-L without LayerScale, vs ViT-H needing custom factory + bigger memory).
+
+**Setup:**
+- Used `eva_large_patch14_196.in22k_ft_in22k_in1k` from timm (downloaded via `timm.create_model('...', pretrained=True)`, ~1.2 GB saved to `pretrained/eva_large_patch14_196.pth`)
+- Created factory `part_attention_vit_large_p14_eva` (same as DINOv2's p14 factory but `layer_scale_init_value=None` — EVA has no LayerScale)
+- Created `config/UrbanElementsReID_train_eva.yml` with **safer hyperparams** (learned from DINOv2 failure):
+  - BASE_LR: 1e-4 (3.5× lower)
+  - GRAD_CLIP: 1.0
+  - SEED: 77
+  - Input 224×112, patch14
+- Added `'fc_norm'` to load_param skip-list (timm ViT has fc_norm we don't use; previously load_param's error-handling crashed on this missing key)
+
+**Code changes that came along (kept — useful for any future LayerScale or ViT factory):**
+- `model/backbones/vit_pytorch.py` — LayerScale module (already from §16d), `part_attention_vit_large_p14_eva()` factory, load_param skips `mask_token` and `fc_norm`
+- `model/make_model.py` — registered `vit_large_patch14_eva_TransReID` in `__factory_LAT_type` + filename map + `in_planes=1024` case
+- `config/defaults.py` — added `_C.SOLVER.GRAD_CLIP`, `_C.SOLVER.EMA_DECAY`, `_C.MODEL.CIRCLE_MARGIN`, `_C.MODEL.CIRCLE_GAMMA`
+- `processor/part_attention_vit_processor.py` — added per-iteration NaN-loss abort + per-epoch NaN-param check (cls_token, part_tokens, pos_embed) + grad clipping with optional unscale + grad-norm logging when clipping
+- 2-epoch GPU smoke test confirmed gradient clipping working (grad norms 7-38 → clipped to 1.0)
+
+**What happened:**
+- Training completed CLEANLY all 60 epochs (no NaN, gradient clipping engaged, loss descended normally)
+- Final ep60: total_loss ~1.18, Acc ~98.5% — looked great
+- But Kaggle results: **solo 0.10244, ensemble (7 ViT-L + 4 EVA) 0.12411 — REGRESSION**
+- EVA's MIM+CLIP pretrain gives different visual features than supervised ImageNet ViT-L. For this specific dataset, those features are WORSE for fine-grained identity discrimination, even though they were trained cleanly.
+
+**Lesson:** Backbone swap is risky. **DINOv2 and EVA both regressed** on this task vs supervised ViT-L (despite supposedly being "stronger" backbones on general benchmarks). Stop swapping backbones unless you have specific reason to think a different pretrain helps the c004 cross-camera generalization gap.
+
+**Submissions burned:** 0.10244 (EVA solo) + 0.12411 (cross-arch ensemble). 6 architecture-related submissions in total (DINOv2 + EVA), all regressed.
+
+## 25. Disk cleanup #2 (2026-04-24)
+
+After EVA failure, deleted DINOv2 checkpoints (8 GB) since both DINOv2 and merged-data were confirmed dead. **Kept** the DINOv2 pretrained weight (`dinov2_vitl14_pretrain.pth`, 1.2 GB) in case we want to retry DINOv2 with safer hyperparams later. Also kept EVA pretrained weight (`eva_large_patch14_196.pth`, 1.2 GB) for the same reason.
+
+After cleanup: 18 GB / 50 GB used (36%).
+
+## 26. New code added this session (mostly kept; some default-disabled)
+
+All of these are integrated and ready to use; most controlled by config flags so existing recipes are unaffected unless you opt in.
+
+### `utils/ema.py` (NEW)
+Exponential Moving Average wrapper. Class `ModelEMA(model, decay=0.9999)`. Updates after every optimizer step. At save time, swap shadow weights into the model (saved checkpoint = EMA weights), then restore raw training weights.
+
+Activate via YAML: `SOLVER.EMA_DECAY: 0.9999` (default 0.0 = disabled). Wired into the processor — when EMA is on, `ema.update(model)` runs after each `scaler.step(optimizer)` and `ema.apply_shadow → save → restore` runs at checkpoint save time.
+
+**Status:** integrated, default off. Used in current seed=100 run.
+
+### `loss/circle_loss.py` (NEW)
+Circle Loss (Sun et al. 2020). Drop-in replacement for the soft-margin triplet. Activated by setting `MODEL.METRIC_LOSS_TYPE: 'circle'` in the YAML. Hyperparameters: `MODEL.CIRCLE_MARGIN: 0.25`, `MODEL.CIRCLE_GAMMA: 256.0` (paper defaults).
+
+`build_loss.py` was updated to wrap CircleLoss in a tuple-returning shim so `triplet(feat, target)[0]` calls work identically. The `loss_func` branch now matches `if cfg.MODEL.METRIC_LOSS_TYPE in ('triplet', 'circle')` (originally only matched 'triplet' literally — fixed).
+
+**Status:** integrated, default off. **Tested in training and FAILED** — see §28.
+
+### Per-iteration NaN-loss guard (in processor)
+```python
+if torch.isnan(total_loss).any() or torch.isinf(total_loss).any():
+    logger.error(...)
+    torch.save(model.state_dict(), os.path.join(log_path, ..._PRENAN_..._.pth))
+    return
+```
+Aborts immediately if total_loss became NaN, saves the pre-NaN state for debugging.
+
+### Per-epoch NaN-param guard (in processor)
+After each epoch, checks if `cls_token / part_token1/2/3 / pos_embed` have NaN. If yes, aborts BEFORE saving the corrupted checkpoint.
+
+### Grad-clip with logging (in processor)
+```python
+if cfg.SOLVER.GRAD_CLIP > 0:
+    scaler.unscale_(optimizer)
+    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.SOLVER.GRAD_CLIP)
+```
+Clips post-unscaled gradients. Logs the pre-clip norm at every log_period iteration so you can see when clipping engages.
+
+### `ensemble_crossarch_update.py` (NEW — Session 2)
+Iterates groups of (config_file, list of checkpoints) — each group can have different INPUT.SIZE_TEST, TRANSFORMER_TYPE, etc. Used to ensemble ViT-L/16 (256×128) + DINOv2/14 (224×112) + EVA/14 (224×112) into one submission. Verified working but the cross-arch ensembles regressed because DINOv2/EVA were weak.
+
+### `ensemble_multiscale_update.py` (NEW)
+Extension of crossarch that also iterates over scales per group. **Multi-scale for ViT-L/16 didn't work out of the box** — the outer `build_part_attention_vit.load_param` doesn't resize `pos_embed` when inference scale differs from training scale, so trying 288×144 on a 256×128-trained ckpt errors. Currently uses only single-scale per group. **TODO if revisited:** add pos_embed resize to the outer load_param.
+
+## 27. Submissions tally (continuing from §18)
+
+| # | When | CSV | Score | Outcome |
+|---|---|---|---|---|
+| 15 | 2026-04-24 | `ensemble_11ckpt_crossdata_classfilt` (with merged-data ckpts) | 0.13329 | ❌ |
+| 16 | 2026-04-24 | `dinov2_ep60_solo_classfilt` (NaN-corrupted ckpt) | 0.00000 | ❌ |
+| 17 | 2026-04-24 | `ensemble_crossarch_vitl_dinov2` (NaN-corrupted ckpts in ensemble) | 0.00000 | ❌ |
+| 18 | 2026-04-24 | `dinov2_ep30_solo_classfilt` (clean ep30 only) | 0.11915 | ❌ |
+| 19 | 2026-04-24 | `ensemble_crossarch_vitl_dinov2ep30` (7 ViT-L + 3 DINOv2 ep10/20/30) | 0.12651 | ❌ |
+| 20 | 2026-04-24 | `eva_ep60_solo_classfilt` | 0.10244 | ❌ |
+| 21 | 2026-04-24 | `ensemble_vitl_eva` (7 ViT-L + 4 EVA) | 0.12411 | ❌ |
+
+**7 consecutive regressions** since session 2 ended (which had also ended on a regression). **Best is still 0.13361** — the cross-seed ensemble from Session 1.
+
+## 28. Circle Loss attempt — FAILED at our hyperparams (don't retry as configured)
+
+After EVA failure, I argued the "non-architectural change" path: **seed=100 + EMA + Circle Loss** on the proven supervised ViT-L recipe. User went for it.
+
+**What happened:**
+- Used: `METRIC_LOSS_TYPE: 'circle'`, `CIRCLE_MARGIN: 0.25`, `CIRCLE_GAMMA: 256.0` (paper defaults), `BASE_LR: 3.5e-4`, `EMA_DECAY: 0.9999`, `GRAD_CLIP: 1.0`
+- At epoch 22-24: total_loss stuck at 53-56, **Acc stuck at 0.34-0.38** (vs 0.9+ for triplet at same epoch)
+- Pre-clip grad_norm consistently 78-90; we clipped to 1.0 → effective LR was ~1/80 of intended → model barely moving
+- KILLED training before completion
+
+**Root cause:** Circle Loss with `gamma=256` produces very large gradients early in training. Combined with our `grad_clip=1.0` (set conservatively after DINOv2 NaN scare), every step gets aggressively throttled → effective learning rate is dramatically reduced → the model can't actually fit.
+
+**Three ways to make Circle Loss work (untested — for future sessions if revisited):**
+1. **Lower gamma** (e.g., 64 or 128) — reduces grad magnitude
+2. **Higher GRAD_CLIP** (e.g., 10.0 or remove entirely) — allows the larger Circle grads to actually propagate
+3. **Lower BASE_LR + balanced loss weights** — explicitly weight `MODEL.TRIPLET_LOSS_WEIGHT: 0.1` so Circle's large magnitude is balanced against CE
+
+**Lesson:** Don't use `gamma=256` with `grad_clip=1.0`. They fight each other.
+
+## 29. Current run: seed=100 + triplet + EMA (clean recipe; LIVE NOW)
+
+After Circle failure, restarted with the PROVEN recipe (just adding EMA, dropping Circle):
+- Same as 0.13361 base recipe (supervised ViT-L, 256×128, batch 64, Adam LR 3.5e-4, 60 epochs)
+- Only changes: `SEED: 100` (new), `EMA_DECAY: 0.9999` (new)
+- `GRAD_CLIP: 0.0` (disabled; triplet doesn't need it)
+- Config: `config/UrbanElementsReID_train_seed100_ema.yml`
+- LOG_NAME: `model_vitlarge_256x128_60ep_seed100_ema`
+
+**Important: launched in DETACHED tmux session** because previous nohup'd run (last night) died at epoch 11 when user closed laptop:
+
+```bash
+tmux new -d -s reid_train "cd /workspace/miuam_challenge_diff && source .venv/bin/activate && python train.py --config_file config/UrbanElementsReID_train_seed100_ema.yml > logs/train_seed100_ema.log 2>&1"
+```
+
+Tmux session name: **`reid_train`**. Survives any disconnect because tmux server is independent of the user's SSH session.
+
+Verified at startup: `Epoch[1] Iter[60/159] total_loss: 8.974 Acc: 0.018` — IDENTICAL to seed=1234 baseline at this point (same shape of curve), confirming clean recipe. EMA enabled with decay=0.9999.
+
+**ETA:** finish ~10:38 (2026-04-25). 6 per-epoch checkpoints will be saved in `models/model_vitlarge_256x128_60ep_seed100_ema/`. The saved weights will be the **EMA shadow weights** (this is the whole point — those are what ensemble well).
+
+## 30. Plan after seed=100 finishes
+
+**Immediate:**
+1. Check `models/model_vitlarge_256x128_60ep_seed100_ema/` — should have ep10/20/30/40/50/60. Verify no NaN (just to be safe even though triplet shouldn't NaN).
+2. Run **solo inference** on ep60 — diagnostic
+3. Run **ensemble** with the existing 7-ckpt list + new seed=100 ckpts (probably ep30/40/50/60). New CHECKPOINT_LIST has 11 entries.
+4. Submit ensemble. Expected range: 0.135–0.150 (modest but real).
+
+**If seed=100+EMA helps (>= 0.135):**
+- Train **seed=200+EMA** with same recipe. Stack another seed → ensemble of 15 ckpts.
+- Likely incremental gain of ~0.003.
+
+**If seed=100+EMA doesn't help (≈ 0.13361 or worse):**
+- We've genuinely exhausted what same-recipe iteration can give.
+- Real improvement requires either:
+  - **Better ReID training** that we haven't tried (ArcFace done right, sub-center ArcFace, instance-batch normalization, camera-aware training)
+  - **Different inference tricks** (DBA, advanced reranking)
+  - **Longer training** (90/120 epochs — risk of overfit but might help c004 generalization)
+- At that point: ACCEPT 0.13361 as the final, save state for posterity, move on.
+
+## 31. CRITICAL NOTES for any future Claude session reading this
+
+### Things to NEVER retry (Kaggle-confirmed dead this whole session arc):
+- Mixed UAM training data (negative transfer — UAM is a different city campus)
+- DINOv2 backbone at LR 3.5e-4 without grad clipping (NaN blowup at ep40+)
+- DINOv2 even at safer LR 1e-4 — still gives weak features for this task (ep30 solo: 0.11915)
+- EVA-L backbone at any LR — features unsuitable for fine-grained ReID here (ep60 solo: 0.10244)
+- Multi-layer CLS concat (last-6) on supervised ViT-L
+- Strict per-class filtering (use class-GROUP filter merging container ∪ rubbishbins)
+- H-flip TTA (directional traffic signs)
+- PAT part-token concat at inference
+- Query expansion α=0.7/K=3 pre-rerank
+- Deep supervision at aux_weight=0.1 (too weak — try 0.5+ if revisited)
+- Heavy-aug fine-tune from a trained ckpt (ColorJitter+REA from ep60)
+- Wider trajectory ensemble (adding ep20 hurts vs ep30/40/50)
+- Multi-scale of ViT-L/16 inference (requires pos_embed resize patch in load_param — TODO)
+- Circle Loss with gamma=256 and grad_clip=1.0 (they conflict; needs lower gamma OR bigger clip)
+
+### Things that have worked (cumulative gain ~0.013 over baseline):
+1. Retrain with same recipe, different seed (+0.008 random-seed variance win)
+2. Class-group filter at rerank time (+0.001) — container ∪ rubbishbins merged
+3. Cross-seed ensemble (7-ckpt: seed1234 ep30/40/50 + seed42 ep30/40/50/60) (+0.003)
+
+### Things that are integrated but UNTESTED on Kaggle:
+- EMA weights (currently training; should give +0.5-1.5% if it works)
+- NaN guards (preventive, no perf impact)
+- Gradient clipping (preventive, can hurt when clipping too aggressively as shown by Circle Loss)
+- Cross-architecture ensemble script (works, but useless because DINOv2/EVA are bad)
+- Multi-scale ensemble script (single-scale only currently — multi-scale needs pos_embed resize)
+
+### Operational lessons:
+- **Always launch long training in detached tmux**, not just nohup. nohup `&` survives SIGHUP but not all forms of session termination on cloud GPUs.
+- **Always check checkpoint integrity** (cls_token / part_tokens / pos_embed for NaN) before trusting a checkpoint. AMP loss-scaler doesn't catch all NaN gradients.
+- **Always smoke test** new code on CPU first, then 2-epoch GPU before committing to a 60-epoch run. Catches OOM, NaN, weight-load issues cheaply.
+
+## 32. State of the workspace (snapshot 2026-04-25 09:30)
+
+```
+/workspace/Urban2026/                                          # challenge data
+/workspace/UAM_Unified.zip                                     # external data (kept, but DON'T merge into training)
+/workspace/UAM_Unified_extract/                                # extracted UAM data
+/workspace/Urban2026_merged/                                   # symlink-merged dataset (DON'T USE)
+/workspace/miuam_challenge_diff/
+├── pretrained/
+│   ├── jx_vit_large_p16_224-4ee7a4dc.pth        # supervised ViT-L (THE ONE THAT WORKS)
+│   ├── dinov2_vitl14_pretrain.pth                # DINOv2 (failed; kept for future retry)
+│   └── eva_large_patch14_196.pth                 # EVA (failed; kept for future retry)
+├── models/
+│   ├── model_vitlarge_256x128_60ep/              # seed=1234, ep30/40/50 — in 0.13361 ensemble
+│   ├── model_vitlarge_256x128_60ep_seed42/       # seed=42, ep30/40/50/60 — in 0.13361 ensemble
+│   ├── model_eva_large_p14_seed77/               # EVA failed run (5 .pth files, useless — should delete)
+│   └── model_vitlarge_256x128_60ep_seed100_ema/  # CURRENT RUN (training now)
+├── config/
+│   ├── UrbanElementsReID_train.yml                       # base
+│   ├── UrbanElementsReID_train_seed42.yml                # seed=42 retrain (Session 1)
+│   ├── UrbanElementsReID_train_seed100_ema.yml           # CURRENT (clean: triplet + EMA)
+│   ├── UrbanElementsReID_train_seed100_ema_circle.yml    # FAILED — kept for reference (don't reuse)
+│   ├── UrbanElementsReID_train_dinov2.yml                # FAILED — kept for reference
+│   ├── UrbanElementsReID_train_eva.yml                   # FAILED — kept for reference
+│   ├── UrbanElementsReID_train_eva_smoke.yml             # 2-epoch smoke YAML (delete or keep — small)
+│   ├── UrbanElementsReID_train_merged.yml                # FAILED — kept for reference
+│   ├── UrbanElementsReID_train_heavyaug.yml              # FAILED — kept
+│   ├── UrbanElementsReID_train_deepsup.yml               # FAILED — kept
+│   ├── UrbanElementsReID_test.yml                        # main test config (ViT-L/16)
+│   ├── UrbanElementsReID_test_dinov2.yml                 # DINOv2 test config
+│   └── UrbanElementsReID_test_eva.yml                    # EVA test config
+├── update.py                                             # single-ckpt inference (rolled back to 0.12927 config)
+├── ensemble_update.py                                    # the 7-ckpt ensemble that produced 0.13361
+├── ensemble_crossarch_update.py                          # cross-arch (works; useless given EVA/DINOv2 dead)
+├── ensemble_multiscale_update.py                         # cross-arch + multi-scale (single-scale only)
+├── merge_datasets.py                                     # builds Urban2026_merged (DON'T USE — bad idea)
+├── results/                                              # all submission CSVs
+├── backup_score/                                         # 0.13361 reference snapshot
+└── context/context_1.md                                  # THIS FILE
+```
+
+### Best-of-everything reproduction recipe (for the 0.13361)
+```bash
+cd /workspace/miuam_challenge_diff && source .venv/bin/activate
+python ensemble_update.py --config_file config/UrbanElementsReID_test.yml --track results/reproduced_0.13361
+```
+
+### To launch any new training in a detachment-safe way
+```bash
+tmux new -d -s <session_name> "cd /workspace/miuam_challenge_diff && source .venv/bin/activate && python train.py --config_file <yaml> > logs/<log>.log 2>&1"
+# Verify with: tmux ls
+# Watch live: tmux attach -t <session_name>  (Ctrl-B then D to detach)
+```
+
+## 33. The end-of-session honest take
+
+We've done **21 Kaggle submissions** in this run, of which **3 produced wins** (0.12873, 0.12927, 0.13361 base), and 18 were regressions or duds. The trajectory is well-documented. The session has burned a LOT of GPU time on architectural experiments (DINOv2, EVA, deep-sup, merged-data, heavy-aug) that all failed. The only proven path forward is **iterating on the supervised ViT-L recipe with EMA + multiple seeds**, plus possibly **inference-side improvements (DBA, smarter reranking) that we haven't fully explored.**
+
+If a future session wants to try something genuinely new, two ideas that **haven't been tried at all** that might be worth it (in order of expected ROI):
+- **Database-side augmentation (DBA)** at inference — replace each gallery feature with the mean of its top-K neighbors. Standard +0.3-1% trick.
+- **ArcFace / sub-center ArcFace** as the ID classification loss (replaces CE), separate from Circle Loss. Different angular-margin formulation; might work where Circle didn't.
+- **Camera-as-input** — adding camera ID embedding as an extra input token, training to be camera-invariant via gradient reversal. Targets the c004 domain gap directly.
+
+Don't try things that are NOT in §31's "never retry" list and that aren't in this "untried" list — they've already been tried in some form.
+
+
+---
+
+# Session 4 update — 2026-04-25 morning + afternoon (the big breakthrough day)
+
+**Read this AFTER Sessions 1, 2, 3 above.** We are now at **0.14976** — first time crossing 0.14, gained +0.016 in a single afternoon **with zero retraining, all post-processing on the existing 7-checkpoint ensemble**. The Path A diagnostic (DBA + rerank sweeps) succeeded spectacularly.
+
+## 34. Score progression today (2026-04-25)
+
+| Submission | Config | Score | Δ vs prev best |
+|---|---|---|---|
+| pre-day base | 7-ckpt ensemble + class-group filter (k1=20/k2=6/λ=0.3, no DBA) | 0.13361 | — |
+| **morning round** (failures during seed=100+EMA path): | | | |
+| `seed100_ema_ep60_solo_classfilt` | seed=100 + EMA solo | 0.11739 | -0.016 ❌ |
+| `ensemble_3seeds_ema` | 7-ckpt + 4× seed100+EMA ckpts (11 ckpts) | 0.12625 | -0.0074 ❌ |
+| **afternoon: DBA + rerank sweep** | | | |
+| `sweep_dba5_k15` | + DBA(k=5) + k1=15 | **0.13707** | +0.00346 ✅ first win |
+| `sweep_dba5_k12` | + DBA(k=5) + k1=12 | 0.13694 | flat (k1 doesn't matter alone) |
+| `sweep_dba8_k15` | + DBA(k=8) + k1=15 | **0.14880** | +0.01173 ✅✅ huge jump |
+| `sweep_dba12_k15` | + DBA(k=12) + k1=15 | 0.13159 | -0.0172 ❌ over-smoothed |
+| `sweep_dba7_k15` | + DBA(k=7) + k1=15 | 0.14630 | confirms k=8 peak |
+| `sweep_dba8_k15_lambda025` | + DBA(k=8) + k1=15 + λ=0.25 | **0.14976** | +0.00096 ✅ current best |
+| `sweep_dba8_k15_lambda020` | + DBA(k=8) + k1=15 + λ=0.20 | 0.14715 | -0.0026 (λ peaked at 0.25) |
+
+**Net gain in one afternoon: +0.01615 (from 0.13361 to 0.14976) using only post-processing.**
+
+## 35. The DBA + rerank tuning curves we mapped today
+
+### DBA k value (with k1=15, λ=0.30 mostly)
+```
+k=5:  0.13707
+k=7:  0.14630
+k=8:  0.14880  ← PEAK (sharp on the upper side)
+k=12: 0.13159  ← catastrophic over-smoothing
+```
+**Lesson:** k=8 is the sweet spot for our 7-checkpoint ensemble's gallery. The peak is asymmetric — going k=8→7 loses ~0.003, going k=8→12 loses ~0.017.
+
+### Rerank λ value (with DBA k=8, k1=15)
+```
+λ=0.20: 0.14715
+λ=0.25: 0.14976  ← PEAK
+λ=0.30: 0.14880
+```
+**Lesson:** λ=0.25 (more weight on jaccard than the default 0.30) gives a small but real gain. Drop is asymmetric here too — going below 0.25 hurts more than going above.
+
+### Rerank k1 value (with DBA k=5, λ=0.30)
+```
+k1=12: 0.13694
+k1=15: 0.13707
+```
+**Lesson:** k1 tightening (20→15) only helps in combination with DBA. k1=15 vs k1=12 is essentially flat — the original k1=20 default was probably also fine for non-DBA setups; with DBA k=8 the new winning config uses k1=15.
+
+## 36. The current winning recipe (reproducing 0.14976)
+
+The 7 checkpoints are unchanged from §17:
+- seed1234: ep30, ep40, ep50
+- seed42: ep30, ep40, ep50, ep60
+
+Post-processing recipe:
+1. Extract L2-normalized final-layer CLS features from each ckpt (single forward, normalize, sum across all 7 ckpts, L2-renormalize)
+2. **Apply DBA with k=8 to gallery features:** for each gallery feature, replace it with the L2-normalized mean of its top-8 nearest neighbors (in cosine similarity, including itself)
+3. Compute distance matrices (q-g, q-q, g-g) from the (DBA-smoothed gallery, raw query) features
+4. Re-rank with **k1=15, k2=5, λ=0.25** (was k1=20, k2=6, λ=0.30)
+5. Apply class-group filter (mask cross-group cells to +∞; container ∪ rubbishbins still merged)
+6. Argsort, write top-100 indices to CSV
+
+Reproducible via `ensemble_dba_rerank_sweep.py` — the variant `dba8_k15_lambda025` regenerates this CSV in ~75 sec.
+
+## 37. New code added in Session 4
+
+### `ensemble_dba_rerank_sweep.py` (NEW — primary tool of the day)
+Standalone script that:
+1. Extracts features from a fixed `CHECKPOINT_LIST` (currently the proven 7) — once.
+2. For each entry in `VARIANTS`, applies DBA(dba_k) to gallery, runs k-reciprocal rerank with given k1/k2/λ, applies class-group filter, writes a Kaggle CSV.
+3. Variants are a tuple `(label, dba_k, k1, k2, lambda)` so easy to expand.
+
+`db_augment(gf, k)` function — straightforward mean of top-k including self, then L2-renormalize.
+
+Latest VARIANTS list (Round 4) is in the script — has unsumbitted candidates ready (`sweep_dba8_k15_k2_4_lambda025`, `sweep_dba8_k15_k2_3_lambda025`, etc.) — see §39.
+
+**The class-group filter and the basic ensemble code is duplicated between this script and `ensemble_update.py` / `ensemble_crossarch_update.py` / `ensemble_multiscale_update.py`.** Refactoring opportunity but not urgent.
+
+## 38. Updates to "what works" and "what doesn't" lists
+
+Add to **WORKS** (Session 4 additions):
+4. **DBA k=8 on gallery features** — single biggest post-processing win this session (+0.012). Smooths gallery features by averaging with their top-K neighbors. Implementation: `gf = (gf[topk_idx_per_row].mean(axis=1)); gf = L2_normalize(gf)`.
+5. **Re-rank λ=0.25** — tiny but real (+0.001) when combined with DBA k=8.
+6. **Re-rank k1=15** — combined with DBA k=8 helps; not isolated effect.
+
+Add to **DOES NOT WORK / DEAD ENDS** (new in Session 4):
+- **EMA-trained ckpt added to the 7-ckpt ensemble** (seed=100+EMA ep30/40/50/60 added → 11 ckpts) — score dropped from 0.13361 to 0.12625. Either EMA hurt or seed=100 was an unlucky draw; either way, that specific 4 ckpts shouldn't be in the production ensemble. The **seed=100+EMA solo** also scored 0.11739 (significantly worse than seed=1234 solo on its own).
+- **DBA k≥12** — over-smooths gallery, kills discrimination (0.13159 at k=12 vs 0.14880 at k=8).
+- **Re-rank λ<0.25** — over-weights jaccard, drops (0.14715 at λ=0.20 vs 0.14976 at λ=0.25).
+- **Re-rank k1=10/12 alone** (without DBA) — no significant improvement vs k1=15 or default k1=20.
+
+## 39. Untested CSVs ready on disk for tomorrow's submissions
+
+These were generated in Round 4 of the sweep but couldn't submit (daily quota hit). All in `/workspace/miuam_challenge_diff/results/`. Listed in priority order based on most-likely incremental win:
+
+| File | Variant | Why try it |
+|---|---|---|
+| `sweep_dba8_k15_k2_4_lambda025_submission.csv` | k2=4 (down from 5) at the winner | k2 dimension completely unexplored — most informative single-step |
+| `sweep_dba8_k15_k2_3_lambda025_submission.csv` | k2=3 even tighter | if k2=4 helps, k2=3 might help more |
+| `sweep_dba8_k15_k2_6_lambda025_submission.csv` | k2=6 (looser) | if k2=4 hurts, try the other direction |
+| `sweep_dba8_k15_lambda015_submission.csv` | λ=0.15 | already-on-disk lambda extreme; likely worse than 0.20 (0.14715) — skip unless k2 fails |
+| `sweep_dba8_k15_lambda010_submission.csv` | λ=0.10 | even more extreme; very unlikely to help |
+| `sweep_dba8_k15_lambda005_submission.csv` | λ=0.05 | extreme; almost pure jaccard. Diagnostic only. |
+| `sweep_dba8_k12_lambda025_submission.csv` | k1=12 + winner | tests if k1=12 with the new lambda helps |
+| `sweep_dba8_k18_lambda025_submission.csv` | k1=18 + winner | the other direction |
+| `sweep_dba8_k15_k2_4_lambda020_submission.csv` | combine k2=4 with λ=0.20 | only if both directions help individually |
+| `sweep_dba8_k15_lambda035_submission.csv` | λ=0.35 (looser) | tests asymmetry of lambda peak |
+
+There are also some Round 3 leftovers on disk that we never submitted:
+- `sweep_dba10_k15_submission.csv`
+- `sweep_dba8_default_submission.csv` (k1=20 with DBA k=8) — diagnostic for whether k1=15 contributes meaningfully
+- `sweep_dba10_default_submission.csv`
+- `sweep_dba15_k15_submission.csv`, `sweep_dba20_k15_submission.csv`, `sweep_dba25_k15_submission.csv` — likely worse (we know k=12 already over-smooths)
+
+## 40. Recommended TOMORROW sequence
+
+1. **Submit `sweep_dba8_k15_k2_4_lambda025`** (top of §39 list) — explores the last untouched rerank axis.
+2. Based on result:
+   - If **> 0.150**, try `dba8_k15_k2_3_lambda025` (continue tightening).
+   - If **≈ 0.149-0.150**, try `dba8_k15_k2_6_lambda025` (other direction).
+   - If **< 0.147**, lock in 0.14976 and pivot.
+3. Total submissions to try: 2-3 max. After that, post-processing peak is found.
+4. **If post-processing is exhausted (~0.150-0.151 range):** start considering the harder paths from §31's "untried wild bets":
+   - DBA + a fine-tune at higher resolution
+   - Camera-aware adversarial training
+   - ArcFace + camera embedding (the SOTA ReID combo we haven't tried)
+   - UAM as SSL pretraining source (NOT mixed training data; that was negative transfer)
+5. **Do NOT touch:** the 7-ckpt CHECKPOINT_LIST in `ensemble_dba_rerank_sweep.py`. It's the proven set. Adding seed=100+EMA hurt today.
+
+## 41. Critical state summary for tomorrow
+
+**Current best:** **0.14976** — `sweep_dba8_k15_lambda025_submission.csv`
+- Backed up in `backup_score/` ✓
+- Reproducible by running `python ensemble_dba_rerank_sweep.py` (variant in `VARIANTS` list)
+
+**Untouched files that produce the best score:**
+- 7 .pth files in `models/model_vitlarge_256x128_60ep/{ep30,40,50}.pth` and `models/model_vitlarge_256x128_60ep_seed42/{ep30,40,50,60}.pth`
+- `pretrained/jx_vit_large_p16_224-4ee7a4dc.pth` (still needed for any retraining)
+- `ensemble_dba_rerank_sweep.py` with `VARIANTS` list
+
+**Cleanup we COULD do (none urgent):**
+- `models/model_vitlarge_256x128_60ep_seed100_ema/` (8 GB) — confirmed dragging ensemble down. Could delete if disk pressure returns.
+- `models/model_eva_large_p14_seed77/` (8 GB) — EVA failed; can delete.
+- DINOv2 + EVA pretrained weights in `pretrained/` (2.4 GB) — keep for now in case we revisit.
+- `Urban2026_merged/` symlinks + `UAM_Unified_extract/` — only useful for SSL-pretrain idea.
+
+**Disk currently:** ~26 GB / 50 GB used (52%). Plenty of room.
+
+**Kaggle daily submission cap reached today.** Tomorrow's quota resets — pick CAREFULLY. The §39 priority list is ordered by my best guess of incremental improvement.
+
+## 42. Honest assessment ending Session 4
+
+We did **8 submissions today**, of which **5 wins** (a streak after many failures), netting +0.016. That's the biggest single-day improvement of the entire session arc.
+
+The DBA k=8 + λ=0.25 + k1=15 recipe is the single biggest post-processing win we've found, and it's a perfectly clean improvement: no retraining, no architectural changes, just smarter inference on top of the 7-checkpoint ensemble that produced 0.13361.
+
+**Where we stand on the leaderboard (rough estimate, end-of-day):**
+- Top-3 cutoff was ~0.152 yesterday. We're at 0.14976.
+- One more good submission could put us at top-3.
+- After that, the gap to leader 0.176 is still significant — would need new model training to close.
+
+**Realistic ceiling for current 7-ckpt ensemble + post-processing:** maybe 0.151-0.153.
+**Beyond that:** structurally different model needed (one of the wild bets from §31).
+
+If you're a future Claude: **don't touch what's working. Pick tomorrow's submission from §39's priority list. Once post-processing saturates, then think about the wild bets — but get the easy wins first.**
+

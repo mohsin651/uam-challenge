@@ -52,7 +52,7 @@ TEST:
   EVAL: True
   IMS_PER_BATCH: 64
   RE_RANKING: True
-  WEIGHT: '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_merged_seed2024/part_attention_vit_60.pth'
+  WEIGHT: '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed100_ema/part_attention_vit_60.pth'
   NECK_FEAT: 'before'
   FEAT_NORM: True
 

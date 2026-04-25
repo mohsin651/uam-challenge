@@ -22,8 +22,8 @@ from utils.re_ranking import re_ranking
 
 
 # Edit this list to change which checkpoints participate.
-# Cross-run ensemble: seed1234 has ep30/40/50 (our proven set from 0.13019),
-# seed42 has ep30/40/50/60 (seed1234 never reached ep60 — first run crashed at ep58).
+# 11-checkpoint ensemble: 7 from the 0.13361 base (seed1234 + seed42) +
+# 4 from the new seed100+EMA run.
 CHECKPOINT_LIST = [
     '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep/part_attention_vit_30.pth',
     '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep/part_attention_vit_40.pth',
@@ -32,6 +32,10 @@ CHECKPOINT_LIST = [
     '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_40.pth',
     '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_50.pth',
     '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_60.pth',
+    '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed100_ema/part_attention_vit_30.pth',
+    '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed100_ema/part_attention_vit_40.pth',
+    '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed100_ema/part_attention_vit_50.pth',
+    '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed100_ema/part_attention_vit_60.pth',
 ]
 
 
