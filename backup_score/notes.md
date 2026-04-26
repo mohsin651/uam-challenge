@@ -2,7 +2,9 @@
 
 Chronological list of every Kaggle submission. Score = mAP@100.
 
-Target: **0.14+** (top 3). Best so far: **0.13361** (set 2026-04-21, 7-checkpoint cross-seed ensemble).
+Target: **0.14+** (top 3) — **EXCEEDED**. Best so far: **0.15421** (set 2026-04-26, 7-ckpt ensemble + DBA k=8 + rerank k1=15/k2=4/λ=0.275 + class-group filter).
+
+Score progression: 0.12072 (start) → 0.12873 → 0.12927 → 0.13361 → 0.14976 → 0.15288 → 0.15421 (current).
 
 ## Score history
 

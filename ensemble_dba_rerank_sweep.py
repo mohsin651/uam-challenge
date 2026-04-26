@@ -37,23 +37,22 @@ CHECKPOINT_LIST = [
     '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_60.pth',
 ]
 
-# Round 4 sweep: lambda direction around 0.14976 winner (dba=8, k1=15, lambda=0.25).
-# Curve: lambda 0.30→0.25 gave +0.00096. Push lower.
+# Round 5 sweep: explore around 0.15288 winner (dba=8, k1=15, k2=4, lambda=0.25).
+# At the new k2 peak, may need to re-tune the OTHER axes.
 VARIANTS = [
-    # Lambda hunt
-    ('dba8_k15_lambda020',   8,  15, 5, 0.20),
-    ('dba8_k15_lambda015',   8,  15, 5, 0.15),
-    ('dba8_k15_lambda010',   8,  15, 5, 0.10),
-    ('dba8_k15_lambda005',   8,  15, 5, 0.05),
-    # k2 dimension at the lambda=0.25 winner — completely unexplored axis
-    ('dba8_k15_k2_4_lambda025',  8,  15, 4, 0.25),
-    ('dba8_k15_k2_6_lambda025',  8,  15, 6, 0.25),
-    ('dba8_k15_k2_3_lambda025',  8,  15, 3, 0.25),
-    # Stack: lambda + slightly different k1 with DBA k=8 (just in case)
-    ('dba8_k12_lambda025',   8,  12, 4, 0.25),
-    ('dba8_k18_lambda025',   8,  18, 6, 0.25),
-    # Sanity: lambda 0.20 with k2=4 (combine if both directions help)
-    ('dba8_k15_k2_4_lambda020',  8,  15, 4, 0.20),
+    # Re-explore DBA k axis at k2=4 (peak might have shifted)
+    ('dba6_k15_k2_4_lambda025',  6,  15, 4, 0.25),
+    ('dba7_k15_k2_4_lambda025',  7,  15, 4, 0.25),
+    ('dba9_k15_k2_4_lambda025',  9,  15, 4, 0.25),
+    ('dba10_k15_k2_4_lambda025', 10, 15, 4, 0.25),
+    # Re-explore lambda at k2=4
+    ('dba8_k15_k2_4_lambda030',  8,  15, 4, 0.30),
+    ('dba8_k15_k2_4_lambda035',  8,  15, 4, 0.35),
+    ('dba8_k15_k2_4_lambda027',  8,  15, 4, 0.275),
+    ('dba8_k15_k2_4_lambda022',  8,  15, 4, 0.225),
+    # Re-explore k1 at the new winner
+    ('dba8_k12_k2_4_lambda025',  8,  12, 4, 0.25),
+    ('dba8_k18_k2_4_lambda025',  8,  18, 4, 0.25),
 ]
 
 

@@ -37,17 +37,22 @@ CHECKPOINT_LIST = [
     '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_60.pth',
 ]
 
-# Variants to try. (label, dba_k (0=off), rerank_k1, rerank_k2, rerank_lambda)
+# Round 5 sweep: explore around 0.15288 winner (dba=8, k1=15, k2=4, lambda=0.25).
+# At the new k2 peak, may need to re-tune the OTHER axes.
 VARIANTS = [
-    ('baseline_default',     0,  20, 6, 0.3),    # exact 0.13361 reproduction
-    ('dba5_default',         5,  20, 6, 0.3),    # DBA k=5 + default rerank
-    ('dba10_default',        10, 20, 6, 0.3),    # DBA k=10
-    ('dba3_default',         3,  20, 6, 0.3),    # DBA k=3 (less smoothing)
-    ('rerank_k15',           0,  15, 5, 0.3),    # tighter k1
-    ('rerank_k10',           0,  10, 4, 0.3),    # even tighter
-    ('rerank_lambda04',      0,  20, 6, 0.4),    # more weight on euclidean
-    ('rerank_lambda02',      0,  20, 6, 0.2),    # less weight on euclidean
-    ('dba5_k15',             5,  15, 5, 0.3),    # DBA + tighter rerank
+    # Re-explore DBA k axis at k2=4 (peak might have shifted)
+    ('dba6_k15_k2_4_lambda025',  6,  15, 4, 0.25),
+    ('dba7_k15_k2_4_lambda025',  7,  15, 4, 0.25),
+    ('dba9_k15_k2_4_lambda025',  9,  15, 4, 0.25),
+    ('dba10_k15_k2_4_lambda025', 10, 15, 4, 0.25),
+    # Re-explore lambda at k2=4
+    ('dba8_k15_k2_4_lambda030',  8,  15, 4, 0.30),
+    ('dba8_k15_k2_4_lambda035',  8,  15, 4, 0.35),
+    ('dba8_k15_k2_4_lambda027',  8,  15, 4, 0.275),
+    ('dba8_k15_k2_4_lambda022',  8,  15, 4, 0.225),
+    # Re-explore k1 at the new winner
+    ('dba8_k12_k2_4_lambda025',  8,  12, 4, 0.25),
+    ('dba8_k18_k2_4_lambda025',  8,  18, 4, 0.25),
 ]
 
 
