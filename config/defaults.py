@@ -88,6 +88,21 @@ _C.MODEL.FINETUNE_FROM = ''
 _C.MODEL.CIRCLE_MARGIN = 0.25
 _C.MODEL.CIRCLE_GAMMA = 256.0
 
+# ArcFace ID-loss type — 'softmax' (default, original CE) or 'arcface'.
+# When 'arcface', the model's training-mode forward computes cos(theta+margin)
+# logits using normalized classifier weights, before CE loss is applied.
+_C.MODEL.ID_LOSS_TYPE = 'softmax'
+_C.MODEL.ARCFACE_S = 64.0
+_C.MODEL.ARCFACE_M = 0.50
+
+# Camera-adversarial training — adds a camera classifier behind a Gradient
+# Reversal Layer to push the backbone toward camera-invariant features.
+# Targets the c004 cross-camera generalization gap.
+_C.MODEL.CAM_ADV = False
+_C.MODEL.NUM_CAMERAS = 3        # number of training-time cameras (c001-c003)
+_C.MODEL.CAM_ADV_LAMBDA = 0.1   # GRL gradient multiplier (start conservative)
+_C.MODEL.CAM_ADV_WEIGHT = 1.0   # weight on cam-CE loss in the total loss
+
 
 #-----------------------------------------------------------------------------
 # INPUT

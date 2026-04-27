@@ -314,7 +314,20 @@ class build_part_attention_vit(nn.Module):
                 cl.apply(weights_init_classifier)
             print(f'deep supervision ON: {self.num_aux} aux heads on layers -2..-{self.num_aux+1}')
 
-    def forward(self, x):
+        # Camera-adversarial head (gradient reversal layer to make features
+        # camera-invariant). Trained simultaneously with the ID classifier.
+        # Activated by MODEL.CAM_ADV. Backbone gets NEGATIVE gradient from this
+        # head, so it learns to produce features the camera classifier can't
+        # distinguish. Targets the c004 cross-camera generalization gap.
+        self.cam_adv = cfg.MODEL.CAM_ADV
+        if self.cam_adv:
+            self.num_cameras = cfg.MODEL.NUM_CAMERAS  # default 3 (c001-c003 in training)
+            self.cam_adv_lambda = cfg.MODEL.CAM_ADV_LAMBDA
+            self.cam_classifier = nn.Linear(self.in_planes, self.num_cameras, bias=False)
+            self.cam_classifier.apply(weights_init_classifier)
+            print(f'camera-adversarial ON: classifier over {self.num_cameras} cams, GRL lambda={self.cam_adv_lambda}')
+
+    def forward(self, x, label=None, cam_label=None):
         layerwise_tokens = self.base(x) # B, N, C
         layerwise_cls_tokens = [t[:, 0] for t in layerwise_tokens] # cls token
         part_feat_list = layerwise_tokens[-1][:, 1: 4] # 3, 768
@@ -323,7 +336,19 @@ class build_part_attention_vit(nn.Module):
         feat = self.bottleneck(layerwise_cls_tokens[-1])
 
         if self.training:
-            cls_score = self.classifier(feat)
+            # ArcFace path: replace plain linear classifier with cos(theta+margin)
+            # logits using normalized classifier weights. Requires `label` to know
+            # which class entry to apply margin to. If label is missing, fall
+            # back to plain classifier (preserves backward compatibility).
+            if self.cfg.MODEL.ID_LOSS_TYPE == 'arcface' and label is not None:
+                from loss.arcface_head import arcface_logits
+                cls_score = arcface_logits(
+                    feat, self.classifier.weight, label,
+                    scale=self.cfg.MODEL.ARCFACE_S,
+                    margin=self.cfg.MODEL.ARCFACE_M,
+                )
+            else:
+                cls_score = self.classifier(feat)
             if self.deep_sup:
                 aux_scores = []
                 for i in range(self.num_aux):
@@ -331,6 +356,12 @@ class build_part_attention_vit(nn.Module):
                     aux_feat = self.aux_bottlenecks[i](aux_cls)
                     aux_scores.append(self.aux_classifiers[i](aux_feat))
                 return cls_score, layerwise_cls_tokens, layerwise_part_tokens, aux_scores
+            # Camera-adversarial path: emit camera logits with reversed gradient.
+            # Returns 4-tuple (cls_score, cls_tokens, part_tokens, cam_logits).
+            if self.cam_adv:
+                from utils.gradient_reversal import grad_reverse
+                cam_logits = self.cam_classifier(grad_reverse(feat, self.cam_adv_lambda))
+                return cls_score, layerwise_cls_tokens, layerwise_part_tokens, cam_logits
             return cls_score, layerwise_cls_tokens, layerwise_part_tokens
         else:
             return feat if self.neck_feat == 'after' else layerwise_cls_tokens[-1]

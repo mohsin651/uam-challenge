@@ -28,6 +28,10 @@ from utils.re_ranking import re_ranking
 
 
 CHECKPOINT_LIST = [
+    # Proven 7-ckpt set that produced 0.15421 with the optimal post-proc.
+    # seed=200 (with GRAD_CLIP=1.0) was tested and dragged the ensemble down
+    # from 0.15421 → 0.12608, same pattern as seed=100+EMA. The grad-clip
+    # changes feature distribution enough to break the ensemble blend.
     '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep/part_attention_vit_30.pth',
     '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep/part_attention_vit_40.pth',
     '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep/part_attention_vit_50.pth',
@@ -37,22 +41,16 @@ CHECKPOINT_LIST = [
     '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_60.pth',
 ]
 
-# Round 5 sweep: explore around 0.15288 winner (dba=8, k1=15, k2=4, lambda=0.25).
-# At the new k2 peak, may need to re-tune the OTHER axes.
+# Round 6 (3-seed ensemble: 11 ckpts). Test the proven 0.15421 winner config
+# on the bigger ensemble + a few nearby configs in case optimum shifted.
 VARIANTS = [
-    # Re-explore DBA k axis at k2=4 (peak might have shifted)
-    ('dba6_k15_k2_4_lambda025',  6,  15, 4, 0.25),
-    ('dba7_k15_k2_4_lambda025',  7,  15, 4, 0.25),
-    ('dba9_k15_k2_4_lambda025',  9,  15, 4, 0.25),
-    ('dba10_k15_k2_4_lambda025', 10, 15, 4, 0.25),
-    # Re-explore lambda at k2=4
-    ('dba8_k15_k2_4_lambda030',  8,  15, 4, 0.30),
-    ('dba8_k15_k2_4_lambda035',  8,  15, 4, 0.35),
-    ('dba8_k15_k2_4_lambda027',  8,  15, 4, 0.275),
-    ('dba8_k15_k2_4_lambda022',  8,  15, 4, 0.225),
-    # Re-explore k1 at the new winner
-    ('dba8_k12_k2_4_lambda025',  8,  12, 4, 0.25),
-    ('dba8_k18_k2_4_lambda025',  8,  18, 4, 0.25),
+    # Proven post-processing winner from the 7-ckpt era — test if it transfers
+    ('11ckpt_dba8_k15_k2_4_lambda027',   8,  15, 4, 0.275),    # proven winner
+    ('11ckpt_dba8_k15_k2_4_lambda030',   8,  15, 4, 0.300),    # adjacent (was 0.15410)
+    ('11ckpt_dba8_k15_k2_4_lambda025',   8,  15, 4, 0.250),    # adjacent (was 0.15288)
+    # In case the bigger ensemble shifts the DBA optimum
+    ('11ckpt_dba7_k15_k2_4_lambda027',   7,  15, 4, 0.275),
+    ('11ckpt_dba9_k15_k2_4_lambda027',   9,  15, 4, 0.275),
 ]
 
 

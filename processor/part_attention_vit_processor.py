@@ -74,8 +74,8 @@ def part_attention_vit_do_train_with_amp(cfg,
                 #input = input.view(-1, input.size(2), input.size(3), input.size(4))
 
                 # compute output
-                model_out = model(input)
-                if cfg.MODEL.DEEP_SUP:
+                model_out = model(input, label=vid.cuda(non_blocking=True))
+                if cfg.MODEL.DEEP_SUP or cfg.MODEL.CAM_ADV:
                     _, _, layerwise_feat_list, _ = model_out
                 else:
                     _, _, layerwise_feat_list = model_out
@@ -109,9 +109,15 @@ def part_attention_vit_do_train_with_amp(cfg,
 
             model.to(device)
             with amp.autocast(enabled=True):
-                model_out = model(img)
+                # Pass label so ArcFace can compute cos(theta+margin) on the
+                # true class. With ID_LOSS_TYPE='softmax' (default), label is
+                # ignored and plain classifier is used.
+                model_out = model(img, label=target)
+                cam_logits = None
                 if cfg.MODEL.DEEP_SUP:
                     score, layerwise_global_feat, layerwise_feat_list, aux_scores = model_out
+                elif cfg.MODEL.CAM_ADV:
+                    score, layerwise_global_feat, layerwise_feat_list, cam_logits = model_out
                 else:
                     score, layerwise_global_feat, layerwise_feat_list = model_out
 
@@ -143,6 +149,19 @@ def part_attention_vit_do_train_with_amp(cfg,
                         aux_loss = aux_loss + loss_fn(aux_scores[i], aux_feat, target, soft_label=False)
                     aux_loss = aux_loss / cfg.MODEL.NUM_AUX_LAYERS
                     reid_loss = reid_loss + cfg.MODEL.AUX_LOSS_WEIGHT * aux_loss
+
+                # Camera-adversarial loss. The grad-reversal layer inside the
+                # model already flipped the gradient sign for the backbone's
+                # path, so adding a POSITIVE cam_loss to total_loss makes the
+                # camera classifier improve while the backbone is pushed to be
+                # camera-invariant (negative effective gradient on backbone).
+                cam_loss = torch.tensor(0.0, device=img.device)
+                if cfg.MODEL.CAM_ADV and cam_logits is not None:
+                    # camid is 1-indexed in the dataset (cameras start at c001).
+                    # Subtract 1 to match cam_classifier output indices [0, num_cameras-1].
+                    cam_target = (target_cam - 1).clamp(0, cfg.MODEL.NUM_CAMERAS - 1)
+                    cam_loss = F.cross_entropy(cam_logits, cam_target)
+                    reid_loss = reid_loss + cfg.MODEL.CAM_ADV_WEIGHT * cam_loss
 
                 total_loss = reid_loss + l_ploss*ploss
 

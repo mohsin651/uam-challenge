@@ -1,0 +1,71 @@
+num_query: 928, cross-group mask shape: (928, 2844)
+
+  baseline 7-ckpt extraction:
+    model_vitlarge_256x128_60ep/part_attention_vit_30.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+/workspace/miuam_challenge_diff/.venv/lib/python3.10/site-packages/torch/nn/init.py:412: UserWarning: Initializing zero-element tensors is a no-op
+  warnings.warn("Initializing zero-element tensors is a no-op")
+===========building our part attention vit===========
+Loading trained model from /workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep/part_attention_vit_30.pth
+    model_vitlarge_256x128_60ep/part_attention_vit_40.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+Loading trained model from /workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep/part_attention_vit_40.pth
+    model_vitlarge_256x128_60ep/part_attention_vit_50.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+Loading trained model from /workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep/part_attention_vit_50.pth
+    model_vitlarge_256x128_60ep_seed42/part_attention_vit_30.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+Loading trained model from /workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_30.pth
+    model_vitlarge_256x128_60ep_seed42/part_attention_vit_40.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+Loading trained model from /workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_40.pth
+    model_vitlarge_256x128_60ep_seed42/part_attention_vit_50.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+Loading trained model from /workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_50.pth

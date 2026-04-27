@@ -32,6 +32,7 @@ DBA k≥10, λ<0.25, k1=12 in re-ranking.
 
 - **Training:** `cd /workspace/miuam_challenge_diff && source .venv/bin/activate && python train.py --config_file config/<yaml>`
   - **Always launch in detached tmux** for any long run; nohup `&` died on session disconnect (see Session 3 §29).
+  - **Always set `SOLVER.GRAD_CLIP: 1.0` in any new training YAML.** AMP loss-scaler does NOT catch all NaN gradients — confirmed twice this session arc (DINOv2 ep40+, plain triplet seed=200 ep38).
 - **Reproduce 0.15421:** `python ensemble_dba_rerank_sweep.py` (variant `dba8_k15_k2_4_lambda027` is in the VARIANTS list)
 - **Backup of best:** `backup_score/`
 - **venv:** Python 3.10, torch==2.1.0+cu121

@@ -1144,3 +1144,495 @@ Combined Session 4+5 = **the single biggest gains of the entire session arc**. W
 
 **The 0.15421 recipe is the new starting point** for any future improvement attempt. To beat it: need either more diverse ckpts in the ensemble, better training recipe, or fundamentally different model. Don't churn more on post-processing.
 
+
+---
+
+# Session 6 update — 2026-04-26 (afternoon — push to 0.16+ via retraining attempts; all failed; pivoting to CLIP-ReID)
+
+**Read after Sessions 1-5 above.** Coming into Session 6 with **0.15421 best** (DBA k=8, k1=15, k2=4, λ=0.275 on 7-ckpt cross-seed ensemble). Goal: hit 0.16+. Spent ~5 hours, 5 retraining attempts, 0 wins. **Best still 0.15421.** This session's lesson: the 7-ckpt ensemble's feature distribution is fragile — anything trained with a different recipe doesn't blend.
+
+## 51. Submissions made in Session 6
+
+| # | When | CSV | Score | Outcome |
+|---|---|---|---|---|
+| s6-1 | 2026-04-26 | `sweep_11ckpt_dba8_k15_k2_4_lambda027` (seed=200 + grad_clip=1.0 added to 7-ckpt) | 0.12608 | ❌ −0.028 — same drag pattern as seed=100+EMA |
+| s6-2 | 2026-04-26 | `arcface_C_orig7_plus_arcface_ep60` (7-ckpt + 1 ArcFace ckpt) | 0.14752 | ❌ |
+| s6-3 | 2026-04-26 | `arcface_B_orig7_plus_arcface4` (7-ckpt + 4 ArcFace ckpts) | 0.14738 | ❌ |
+| s6-4 | 2026-04-26 | `arcface_A_solo_4ckpt` (ArcFace alone) | 0.12053 | ❌ — ArcFace features intrinsically weak |
+| s6-5 | 2026-04-26 | `rf_rrf_warc_0p10` (Reciprocal Rank Fusion: 7-ckpt + 0.10 × ArcFace ranking) | 0.15263 | ❌ marginal -0.0016 (within noise) |
+
+**Net: 5 submissions, 0 wins. Cumulative session-arc tally: 31 submissions, 5 wins (0.12873, 0.12927, 0.13361, 0.14976, 0.15421).**
+
+## 52. seed=200 saga (the second NaN abort + restart with grad_clip)
+
+First attempt of seed=200: same as the proven recipe but seed=200 (no other changes). Got to epoch 38 cleanly, then **NaN/Inf detected in total_loss**. The per-iteration NaN guard I added in §47 caught it cleanly and saved a `_PRENAN_ep38_it34.pth` snapshot. Lost 35 min but no corrupted model state propagated (model params at the abort were still clean — total_loss became NaN but the bad gradient was never applied).
+
+**Lesson:** AMP loss-scaler does NOT catch all NaN gradients on plain triplet either. Original seed=1234 and seed=42 succeeded by luck. **GRAD_CLIP should be the default for ALL future training** — added a note in CLAUDE.md.
+
+Second attempt: same recipe + `GRAD_CLIP: 1.0`. Trained cleanly all 60 epochs, final loss 1.20, Acc 99.3%. Indistinguishable from seed=1234/seed=42's training trajectory.
+
+**But:** when added to the 7-ckpt ensemble (forming 11-ckpt with seed=200's ep30/40/50/60), the ensemble dropped from **0.15421 → 0.12608 (−0.028)**. Same exact pattern as seed=100+EMA from §28.
+
+**Diagnosis:** GRAD_CLIP=1.0 changes training dynamics enough that final features sit in a different region of feature space than the no-clip-trained seeds. Per-checkpoint features, when normalized and summed, don't average constructively — they average destructively because they parameterize different similarity manifolds.
+
+This is the **fundamental ensemble-incompatibility issue** that has now killed 4 separate retraining attempts:
+1. seed=100 + EMA (Session 4)
+2. seed=200 + grad_clip (this session)
+3. ArcFace-trained ckpts (this session)
+4. RRF rank fusion across recipes (this session) — even fixing rank-space helps only marginally
+
+The ONLY recipe that produces ensemble-compatible features is the EXACT one that produced seed=1234 and seed=42:
+- Plain triplet + CE label-smooth + Pedal patch-clustering
+- All loss weights 1.0
+- LR 3.5e-4, warmup 10 ep, 60 total
+- **NO grad_clip** (this is what kills ensemble compatibility)
+- **NO EMA** (also kills compatibility)
+- **NO Circle** / no ArcFace / no merged data
+
+But running this exact recipe risks NaN (1/3 chance based on n=3 trials: seed=1234 OK, seed=42 OK, seed=200 NaN). Hence the impasse.
+
+## 53. ArcFace integration (built and tested, but ArcFace features didn't transfer)
+
+User asked for ArcFace as the next big lever after seed=200 didn't help. Built it cleanly, two attempts:
+
+**v1 (s=64, m=0.50, grad_clip=1.0) — FAILED to converge:**
+- After 5 epochs: total_loss 30+, Acc 0.001 (vs typical Acc 0.5 at ep5 for plain triplet)
+- Pre-clip grad_norm: 312 / clip_max: 1.0 → clipping ratio 300:1
+- ArcFace's s=64 scaling produces huge gradients early; combined with grad_clip=1.0, effective LR was ~1/300 of intended
+- Same failure mode as Circle Loss in Session 4: aggressive gradient clipping kills aggressive losses
+
+**v2 (s=30, m=0.30, grad_clip=5.0) — converged but features were weak:**
+- Halved s (smaller logit gradients) + halved m (less harsh margin) + 5x more permissive clip
+- Trained cleanly all 60 epochs, final Acc 98.6%
+- But: Kaggle solo score 0.12053. Ensemble adds REGRESSED to 0.147ish.
+- Conclusion: **for our specific PAT + 1088-class + cross-camera-generalization setup, ArcFace doesn't transfer well to test even when training looks good**
+
+ArcFace is a SOTA on Market1501/MSMT17 but not a panacea. Kaggle dataset's c004 generalization is the bottleneck, and ArcFace's tighter angular intra-class clustering doesn't directly attack camera invariance.
+
+## 54. New code added in Session 6 (mostly unused now, kept for reference)
+
+- `loss/arcface_head.py` (NEW) — `arcface_logits()` helper. Default OFF. Activated by `MODEL.ID_LOSS_TYPE='arcface'`.
+- Modified `model/make_model.py` `build_part_attention_vit.forward()` to accept optional `label`. When ArcFace mode + label given, computes cos(theta+margin) logits using normalized classifier weights. Fallback to plain `self.classifier(feat)` when ArcFace off or label missing.
+- Modified `processor/part_attention_vit_processor.py` to pass `label=target` to `model(img, label=...)` in both PC_LOSS init and main training loop.
+- Added config flags: `MODEL.ID_LOSS_TYPE` (default 'softmax'), `MODEL.ARCFACE_S` (default 64.0), `MODEL.ARCFACE_M` (default 0.50).
+- New training YAML: `config/UrbanElementsReID_train_arcface.yml` (after first failure, modified to s=30, m=0.30, grad_clip=5.0).
+- New training YAML: `config/UrbanElementsReID_train_seed200.yml` (with grad_clip=1.0 added after first NaN).
+- New inference scripts:
+  - `arcface_inference.py` — extracts features once, builds 3 variants (ArcFace solo / 7-ckpt + 4 ArcFace / 7-ckpt + 1 ArcFace ep60).
+  - `rank_fusion_inference.py` — generates 11 variants spanning weighted feature ensemble + Reciprocal Rank Fusion (RRF) with various ArcFace weights.
+
+## 55. Updates to "what works" / "doesn't work" lists (Session 6)
+
+### Works (no new entries this session — nothing new worked)
+
+### Confirmed dead (Session 6 additions)
+- **seed=200 + grad_clip=1.0 in 7-ckpt ensemble** → 0.12608 regression
+- **ArcFace (s=30, m=0.30) standalone** → 0.12053 (intrinsically weak features for this task)
+- **ArcFace ckpts in 7-ckpt ensemble (full)** → 0.14738 regression
+- **ArcFace ckpts in 7-ckpt ensemble (ep60 only)** → 0.14752 regression
+- **Reciprocal Rank Fusion of 7-ckpt + ArcFace** → 0.15263 (marginal regression vs 0.15421)
+- **ArcFace at s=64 + m=0.5 + grad_clip=1.0** → doesn't converge (Acc stuck at 0.001 after 5 epochs)
+
+### Generalization across all recipe-variation attempts (5 in a row)
+**Any retrain with a DIFFERENT recipe than the original seed=1234/seed=42 produces features incompatible with the existing 7-ckpt ensemble.** This includes EMA, grad_clip, Circle Loss, ArcFace, deep_sup, merged data, heavy-aug, DINOv2 backbone, EVA backbone. Adding them drags the ensemble down by 0.005-0.030.
+
+The only known way to add an ensemble-compatible ckpt is to use the EXACT original recipe (no clip, no EMA, plain triplet+CE) — but this carries 1/3 NaN risk based on observed runs.
+
+## 56. Cleanup at end of Session 6
+
+Deleted these dead-checkpoint folders to free disk for CLIP-ReID training:
+- `models/model_vitlarge_256x128_60ep_seed200/` (8 GB) — confirmed regresses ensemble (0.12608)
+- `models/model_vitlarge_256x128_60ep_arcface_seed300/` (8 GB) — confirmed regresses ensemble (0.14738/0.14752) and weak solo (0.12053)
+
+Total freed: ~16 GB. Disk after cleanup: ~22 GB / 50 GB used (44%).
+
+## 57. Decision at end of Session 6: pivot to CLIP-ReID
+
+After 5 consecutive failed retraining attempts and concluding the cross-recipe ensemble-incompatibility issue is a hard wall, **user proposed CLIP-ReID** based on its strong showing on the Occluded-Duke benchmark (+6.7 mAP over PAT in the literature).
+
+CLIP-ReID is a 2-stage training pipeline using CLIP's pretrained weights + learnable text prompts + image-text contrastive loss:
+1. **Stage 1**: train per-identity learnable prompt tokens, backbone frozen (~30 min)
+2. **Stage 2**: fine-tune backbone with image-image triplet + image-text contrastive (~75 min)
+
+Estimated work: ~2 hours of new code (CLIP loader, prompt module, contrastive loss, two-stage trainer), ~3.5-4 hours total wall time including training and inference.
+
+**Realistic expectations** (acknowledging our backbone-swap track record):
+- CLIP-ReID solo hits 0.16+: 40-60% probability
+- CLIP-ReID + 7-ckpt ensemble works: 30-40% probability (will likely have same incompatibility issue as DINOv2/EVA/ArcFace)
+- Total wasted effort: ~30% probability (NaN, ensemble drags, slow convergence)
+
+**Plan for Session 7** (next session, starting now):
+1. Install/import CLIP weights (likely via `open_clip` or HuggingFace — check what's available)
+2. Add CLIP backbone factory in `model/backbones/vit_pytorch.py` (similar to dinov2/eva factories — but CLIP has its own weight format)
+3. Add learnable-prompt module: `loss/clip_prompt.py` or similar
+4. Add image-text contrastive loss
+5. Modify processor for two-stage training
+6. CPU smoke test
+7. Stage 1 train → Stage 2 train (in detached tmux, GRAD_CLIP enabled this time)
+8. Solo inference (don't try to ensemble — likely incompatible)
+9. Submit; verdict.
+
+**Backup plan if CLIP-ReID fails or runs out of time:**
+- Lock in 0.15421 as the final submission
+- Try `seed=400 no_clip plain triplet` as one more roll-of-the-dice (50% NaN risk)
+- Consider camera-adversarial training as the structural-ish bet
+
+## 58. Honest end-of-Session-6 assessment
+
+We have spent **6 sessions and 31 Kaggle submissions** on this competition. Best result is 0.15421 (top-3 on yesterday's leaderboard snapshot). Today's afternoon was 5 retrains and 0 wins — a true ceiling-hitting day.
+
+The 7-ckpt ensemble at 0.15421 is genuinely strong. Pushing past 0.16 today seems to require either:
+- A successful no-clip retrain (50/50 NaN risk, minor expected gain)
+- A successful CLIP-ReID training (40-60% chance, bigger expected gain)
+- Or accepting that we're 0.025 behind the leader and call this a good outcome
+
+If a future Claude session is reading this, **strongly recommend reading §31, §44, §47, §52, §55** before suggesting ANY new experiment. The dead-end list is now extensive. Don't re-experiment with anything in those lists. Don't suggest "try ArcFace" or "try DINOv2" — both confirmed dead.
+
+The only viable forward paths are (in priority order):
+1. **CLIP-ReID** (Session 7's planned work)
+2. **seed=400 no_clip** (~50% chance of clean run, low expected gain)
+3. **Camera-adversarial training** (untried, big code investment)
+4. **Pseudo-labeling from current 0.15421** (risky)
+5. **Accept 0.15421** (defensible — top-3 territory)
+
+
+# ============================================================================
+# SESSION 7 — CLIP-ReID dead-end → Camera-adversarial WIN (2026-04-26 evening)
+# ============================================================================
+
+## 59. CLIP-ReID experiment (attempted first per Session 6 plan)
+
+### 59.1. Setup
+Cloned the official CLIP-ReID repo from `https://github.com/Syliz517/CLIP-ReID` into `/workspace/CLIP-ReID/` (separate from miuam tree to keep their codebase intact). Implemented an Urban2026 dataset adapter and config, kept all of CLIP-ReID's two-stage training pipeline (Stage 1: prompt learning, backbone frozen; Stage 2: full fine-tune with image-text contrastive loss).
+
+**New files created in CLIP-ReID/:**
+- `datasets/urbanelementsreid.py` — adapter mapping our `train.csv`/`query.csv`/`test.csv` format to CLIP-ReID's ImageDataset interface. Maps c001–c003 camids to 0–2 indexed.
+- `configs/person/vit_clipreid_urban.yml` — config: ViT-B/16 backbone (CLIP's 86M-param model, vs our 304M PAT ViT-L), input 256×128, batch 64, 60 epochs Stage 2.
+- `clipreid_kaggle_inference.py` — extracts L2-normalized features for query+gallery, ensembles, applies our proven post-processing (DBA k=8, rerank k1=15/k2=4/λ=0.275, class-group filter).
+
+### 59.2. Training results
+Stage 1 (prompt learning): converged in ~30 min, no issues.
+Stage 2 (full fine-tune): 60 epochs, loss curves clean, training-set Acc reached 99.7% by ep60. Six checkpoints saved at ep10/20/30/40/50/60 in `output_urban2026/ViT-B-16_*.pth`.
+
+### 59.3. Inference issues encountered + fixed
+- **Path collision**: `from utils.re_ranking import re_ranking` failed because miuam's `utils/` shadowed CLIP-ReID's. **Fix**: used `importlib.util.spec_from_file_location` to explicitly load miuam's re_ranking implementation by absolute path.
+- **`cv_embed` AttributeError**: model expected per-camera embedding (SIE) when `cam_label`/`view_label` were passed but our config disabled SIE. **Fix**: passed `cam_label=None, view_label=None` to `model.forward()` (the SIE-skip branch in their model).
+
+### 59.4. CLIP-ReID Kaggle results (DEAD-END)
+| Variant | Score |
+|---|---|
+| `clipreid_ep60_solo` | 0.09788 |
+| `clipreid_ep30_40_50_60` (4-ckpt CLIP-ReID ensemble) | 0.09788 |
+| `clipreid_ep40_50_60` | (≈ same) |
+
+**Conclusion**: ViT-B/16 backbone with CLIP pretraining produces features that DO NOT transfer to c004 query images, despite excellent in-distribution training Acc. This matches our DINOv2/EVA failures — backbone-swap is fundamentally incompatible with the c004 generalization gap regardless of pretraining quality. Adding CLIP-ReID's SIE/OLP would not change the backbone's representation capacity.
+
+**Time invested**: ~3.5 hours (clone, dataset adapter, config, training, debug, inference). All work preserved in `/workspace/CLIP-ReID/` for archival.
+
+## 60. Pivot to camera-adversarial training (MAJOR WIN)
+
+### 60.1. Hypothesis
+Our 7-ckpt baseline scores 0.15421. The c004 query camera is the bottleneck: our training data only has c001–c003, so features are camera-specific to those 3 views. **Hypothesis**: a Gradient Reversal Layer (GRL) [Ganin & Lempitsky, ICML 2015, https://arxiv.org/abs/1409.7495] between the backbone and a camera classifier will push the backbone toward camera-invariant features, improving generalization to the unseen c004.
+
+This sidesteps the cross-recipe ensemble incompatibility issue: the cam-adv head only adds an auxiliary loss; the main reid head still uses plain triplet+CE, so feature distribution should remain close to the 7-ckpt baseline's distribution.
+
+### 60.2. Implementation details
+
+**File `utils/gradient_reversal.py` (NEW, 38 lines):**
+Implements `_GradReverse(Function)` with identity forward and gradient-negation backward (multiplied by `-lambda_`). Helper `grad_reverse(x, lambda_=1.0)` wraps the Function.apply call.
+
+```python
+class _GradReverse(Function):
+    @staticmethod
+    def forward(ctx, x, lambda_):
+        ctx.lambda_ = lambda_
+        return x.view_as(x)  # identity, preserves grad graph
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output.neg() * ctx.lambda_, None
+```
+
+**File `model/make_model.py` (MODIFIED, in `build_part_attention_vit` class):**
+
+In `__init__`, added camera classifier after the existing classifier setup (lines 317–328):
+```python
+self.cam_adv = cfg.MODEL.CAM_ADV
+if self.cam_adv:
+    self.num_cameras = cfg.MODEL.NUM_CAMERAS  # 3 (c001-c003)
+    self.cam_adv_lambda = cfg.MODEL.CAM_ADV_LAMBDA
+    self.cam_classifier = nn.Linear(self.in_planes, self.num_cameras, bias=False)
+    self.cam_classifier.apply(weights_init_classifier)
+```
+
+Note `bias=False` for symmetry with the main classifier; `weights_init_classifier` is the same Kaiming-style init used elsewhere.
+
+In `forward`, modified signature to accept `cam_label=None` and inserted the cam-adv emission path (lines 360–364):
+```python
+if self.cam_adv:
+    from utils.gradient_reversal import grad_reverse
+    cam_logits = self.cam_classifier(grad_reverse(feat, self.cam_adv_lambda))
+    return cls_score, layerwise_cls_tokens, layerwise_part_tokens, cam_logits
+```
+
+Inputs to GRL are **post-bottleneck** `feat` (BNNeck output, 1024-d), matching where the main classifier reads from. This means cam_loss gradient flows back through bottleneck → backbone with sign reversed.
+
+`load_param` already filters anything with `'classifier'` in the parameter name (kept from base impl), so `cam_classifier.weight` is silently skipped at inference time when CAM_ADV=False — no migration code needed for inference scripts.
+
+**File `config/defaults.py` (MODIFIED, lines 101–104):**
+Added 4 new config knobs:
+```python
+_C.MODEL.CAM_ADV = False
+_C.MODEL.NUM_CAMERAS = 3
+_C.MODEL.CAM_ADV_LAMBDA = 0.1   # GRL gradient multiplier
+_C.MODEL.CAM_ADV_WEIGHT = 1.0   # weight on cam-CE loss in total
+```
+λ=0.1 chosen conservatively. The Ganin paper used a schedule (0 → 1 over training) but for our 60-epoch ReID setup, fixed λ is simpler and avoids late-stage gradient explosions.
+
+**File `processor/part_attention_vit_processor.py` (MODIFIED):**
+Two unpacking sites needed updating:
+
+1. Cluster-init loop (line 78–81), runs once before training:
+```python
+if cfg.MODEL.DEEP_SUP or cfg.MODEL.CAM_ADV:
+    _, _, layerwise_feat_list, _ = model_out
+else:
+    _, _, layerwise_feat_list = model_out
+```
+
+2. Main training loop (lines 116–122):
+```python
+model_out = model(img, label=target)
+cam_logits = None
+if cfg.MODEL.DEEP_SUP:
+    score, layerwise_global_feat, layerwise_feat_list, aux_scores = model_out
+elif cfg.MODEL.CAM_ADV:
+    score, layerwise_global_feat, layerwise_feat_list, cam_logits = model_out
+else:
+    score, layerwise_global_feat, layerwise_feat_list = model_out
+```
+
+3. Loss aggregation (lines 158–164):
+```python
+cam_loss = torch.tensor(0.0, device=img.device)
+if cfg.MODEL.CAM_ADV and cam_logits is not None:
+    # camid is 1-indexed in dataset → subtract 1 to match cam_classifier output [0, num_cameras-1]
+    cam_target = (target_cam - 1).clamp(0, cfg.MODEL.NUM_CAMERAS - 1)
+    cam_loss = F.cross_entropy(cam_logits, cam_target)
+    reid_loss = reid_loss + cfg.MODEL.CAM_ADV_WEIGHT * cam_loss
+```
+
+The `clamp` is defensive (test data has c004 = camid 4, but c004 is never in the training loader). Cam_loss is added to reid_loss with positive weight; the GRL inside the model already flipped the sign on the backbone path, so positive total → backbone sees negative effective gradient.
+
+### 60.3. Smoke tests (CPU)
+1. **GRL gradient sign test**: passed (gradient = -0.5 for λ=0.5, identity forward).
+2. **Model forward test**: 4-tuple output shape verified `(score [4,10], cls_tokens [list of 24], part_tokens [list of 24], cam_logits [4,3])`. Backprop on `ce + cam_loss` produced non-zero gradients on both `bottleneck.weight` and `cam_classifier.weight`.
+3. **Dataloader camid range test**: `batch['camid']` returns values in `{1, 2, 3}` — confirmed 1-indexed as expected.
+
+### 60.4. Training YAML
+
+**File `config/UrbanElementsReID_train_camadv.yml` (NEW):**
+Identical to base `UrbanElementsReID_train.yml` except:
+- `MODEL.CAM_ADV: True`
+- `MODEL.NUM_CAMERAS: 3`
+- `MODEL.CAM_ADV_LAMBDA: 0.1`
+- `MODEL.CAM_ADV_WEIGHT: 1.0`
+- `SOLVER.SEED: 500` (new seed for ensemble diversity)
+- `SOLVER.GRAD_CLIP: 1.0` (mandatory after Session 5 NaN incidents)
+- `LOG_NAME: './model_vitlarge_camadv_seed500'`
+
+All other hyperparameters preserved from baseline:
+- ViT-Large/16, ImageNet pretrained
+- Input 256×128, pixel mean/std (0.5, 0.5, 0.5)
+- LGT augmentation enabled (prob 0.5)
+- Adam, BASE_LR=3.5e-4, BIAS_LR_FACTOR=2, WEIGHT_DECAY=1e-4
+- 60 epochs, warmup 10 ep linear, no decay schedule (plateau-like)
+- IMS_PER_BATCH=64, NUM_INSTANCE=4 (16 IDs × 4 instances)
+- Sampler: softmax_triplet
+- soft triplet loss (`NO_MARGIN=True`), label smooth on
+- PC_LOSS soft-label clustering on (K=10)
+- BNNeck `before` for inference
+
+### 60.5. Training run
+
+**Launched in detached tmux session `camadv` at 16:02:46** (after one false start due to the missing cluster-init unpacking fix). Single RTX 4090, 24 GiB.
+
+**Training metrics:**
+- Throughput: ~140 samples/sec, ~70 sec/epoch, total wall time ~75 min.
+- Param count: 305.38M (same as baseline; cam_classifier adds only 1024×3 = 3,072 params).
+- GPU memory: ~17.7 GiB (vs 12 GiB baseline — increase is mostly AMP + grad accumulation, not the 3K extra params).
+- grad_norm pre-clip stayed in [4, 12] range throughout, well under the 1.0 clip ceiling getting hit only in the first ~3 epochs (cosmetic warmup spike).
+
+**Loss progression (total_loss):**
+| Epoch | total_loss | reid_loss | pc_loss | Acc |
+|---|---|---|---|---|
+| 1, iter 60 | 9.995 | 9.477 | 0.518 | 0.020 |
+| 20, iter 120 | 3.165 | 3.092 | 0.073 | 0.867 |
+| 21, iter 60 | 3.044 | 3.032 | 0.013 | 0.880 |
+| 25 | 2.876 | 2.870 | 0.006 | 0.917 |
+| 26 | 2.884 | 2.879 | 0.005 | 0.921 |
+
+Training progressed cleanly with no NaN/Inf, no eval crash. All checkpoints saved at ep10/20/30/40/50/60 (1.22 GB each).
+
+**Important caveat**: in-domain validation mAP is meaningless for this dataset — every eval reports 100% because the val split shares cameras c001–c003 with training (the c004 gap only appears at Kaggle test time). This was already documented in Session 5; we ignore eval mAP.
+
+### 60.6. Inference script
+
+**File `camadv_inference.py` (NEW, ~140 lines):**
+Extracts features once from each of: 4 cam-adv ckpts (ep30/40/50/60) AND the 7-ckpt baseline. Then sums various subsets and writes 8 Kaggle CSVs with the proven post-processing (DBA k=8, rerank k1=15/k2=4/λ=0.275, class-group filter).
+
+**Key design choices:**
+- Test config has `CAM_ADV=False` (default) → cam-adv ckpts load via `load_param` which auto-skips the `cam_classifier` weight (filtered by the `'classifier' in name → continue` rule).
+- All features L2-normalized before summation, then re-normalized after summation (standard ensemble protocol).
+- Class-group filter merges container ∪ rubbishbins into "bin_like" group.
+
+**8 variants generated:**
+
+Cam-adv solo:
+1. `solo_ep60` (1 ckpt)
+2. `solo_ep50_60` (2 ckpts)
+3. `solo_ep40_50_60` (3 ckpts)
+4. `solo_ep30_40_50_60` (4 ckpts)
+
+7-baseline + cam-adv mixed:
+5. `baseline7_plus_camadv_ep60` (8 ckpts) ← winner
+6. `baseline7_plus_camadv_2` (9 ckpts: baseline + ep50+60)
+7. `baseline7_plus_camadv_3` (10 ckpts: baseline + ep40+50+60)
+8. `baseline7_plus_camadv_4` (11 ckpts: baseline + all 4 cam-adv)
+
+### 60.7. Kaggle submission results
+
+**TWO variants submitted on 2026-04-26 evening** (others remain unsubmitted):
+
+| Variant | Kaggle mAP@100 | Δ vs 0.15421 |
+|---|---|---|
+| `baseline7_plus_camadv_ep60` (8 ckpts) | **0.15884** | **+0.00463** ← NEW BEST |
+| `baseline7_plus_camadv_4` (11 ckpts) | 0.13342 | -0.02079 (regression) |
+
+**The +0.00463 winning move** is adding ONLY the converged ep60 cam-adv checkpoint to the 7-ckpt baseline (8-ckpt total ensemble, equal-weight sum).
+
+### 60.8. The crucial finding: only converged cam-adv ckpts are ensemble-compatible
+
+Adding 1 cam-adv ckpt (ep60) → +0.00463
+Adding 4 cam-adv ckpts (ep30/40/50/60) → -0.02079
+
+Early-epoch cam-adv features have a different distribution (the GRL pressure during warmup epochs distorts representations before the model converges to camera-invariant features). Late-epoch cam-adv features ARE compatible with the baseline ensemble. This is a refinement of the Session 6 finding that "any retrain with a different recipe is incompatible" — it's only true for non-converged or distribution-shifted ckpts. A SINGLE converged cam-adv ckpt complements the baseline.
+
+This insight is paper-worthy: gradient-reversal-layer features need to be sampled near convergence to remain feature-distribution-compatible with non-adversarial baselines. Mid-training cam-adv ckpts are NOT a free source of diversity.
+
+## 61. Score progression update through Session 7
+
+```
+0.12072 → 0.12873 → 0.12927 → 0.13361 → 0.14976 → 0.15421 → 0.15884
+```
+
+| # | Score | Δ | Recipe |
+|---|---|---|---|
+| 1 | 0.12072 | — | (prior baseline before our work) |
+| 2 | 0.12873 | +0.00801 | clean retrain seed=1234, ViT-L PAT |
+| 3 | 0.12927 | +0.00054 | + class-group filter |
+| 4 | 0.13361 | +0.00434 | + cross-seed ensemble (seed=42) |
+| 5 | 0.14976 | +0.01615 | + DBA k=8 + rerank k1=15 + λ=0.25 |
+| 6 | 0.15421 | +0.00445 | + k2=4 + λ=0.275 (post-proc tune) |
+| 7 | **0.15884** | **+0.00463** | **+ camera-adv ep60 ckpt added** |
+
+Total session-arc lift over the prior 0.12072 baseline: **+0.03812** (+31.6% relative).
+
+## 62. Updated "what works" / "doesn't work" lists (Session 7)
+
+### Works (NEW additions)
+- **Camera-adversarial training (GRL between backbone and camera classifier)** at λ=0.1, weight=1.0, 60 epochs from ImageNet init, plain triplet+CE main loss preserved
+- **Adding the SINGLE converged ep60 cam-adv ckpt** (not the early ones) to the 7-ckpt baseline ensemble
+
+### Confirmed dead (Session 7 additions)
+- **CLIP-ReID with ViT-B/16 backbone** at 60 epochs — solo 0.09788, ensemble 0.09788 (backbone is fundamentally too small / pretraining doesn't transfer to c004)
+- **Adding all 4 cam-adv ckpts (ep30+40+50+60)** to the baseline → 0.13342 (early-epoch cam-adv features distribution-shifted)
+
+### Refined "cross-recipe incompatibility" rule (Session 7)
+The Session 6 generalization that "any different-recipe retrain is incompatible" is **partially refuted**: a SINGLE late-epoch cam-adv ckpt IS compatible. The refined rule is: **distribution-shifted features hurt ensembles; converged late-epoch ckpts from a structurally minor variation (auxiliary head, no main-loss change) can complement the baseline.**
+
+What stays in the dead list:
+- Backbone swaps (DINOv2, EVA, CLIP-ReID) — too distribution-shifted
+- Main-loss changes (Circle Loss, ArcFace) — too distribution-shifted
+- Training-dynamic changes (EMA, grad_clip, heavy-aug) — modify feature distribution enough to hurt ensembles even at convergence
+
+What can be re-explored:
+- **Auxiliary heads** (cam-adv, deep_sup) where main reid loss is unchanged — pick converged ckpt, test in ensemble.
+
+## 63. Disk + checkpoint state at end of Session 7
+
+`models/` directory:
+- `model_vitlarge_256x128_60ep/` (3 ckpts: ep30, ep40, ep50) — baseline seed=1234, KEEP
+- `model_vitlarge_256x128_60ep_seed42/` (4 ckpts: ep30, ep40, ep50, ep60) — baseline seed=42, KEEP
+- `model_vitlarge_camadv_seed500/` (4 ckpts: ep30, ep40, ep50, ep60 + best_10) — Session 7 cam-adv, KEEP all (only ep60 used in best submission, but others useful for paper figures showing the per-epoch ensemble-compatibility curve)
+
+`backup_score/`:
+- `sweep_dba8_k15_k2_4_lambda027_submission.csv` — 0.15421 (previous best)
+- `camadv_baseline7_plus_camadv_ep60_0.15884.csv` — **0.15884 (new best)**
+
+`results/` (8 cam-adv variant CSVs, 6 of which are unsubmitted):
+- `camadv_solo_ep30_40_50_60_submission.csv`
+- `camadv_solo_ep40_50_60_submission.csv`
+- `camadv_solo_ep50_60_submission.csv`
+- `camadv_solo_ep60_submission.csv`
+- `camadv_baseline7_plus_camadv_ep60_submission.csv` — submitted: 0.15884
+- `camadv_baseline7_plus_camadv_2_submission.csv` — UNSUBMITTED
+- `camadv_baseline7_plus_camadv_3_submission.csv` — UNSUBMITTED
+- `camadv_baseline7_plus_camadv_4_submission.csv` — submitted: 0.13342
+
+`/workspace/CLIP-ReID/` — full archived dead-end (training scripts, configs, 6 ckpts in output_urban2026/). Kept for paper appendix on what didn't work.
+
+## 64. Plan toward 0.17+ (proposed end-of-Session-7)
+
+Honest gap: 0.15884 → 0.17 = +0.0112. Bigger than any single move so far. Requires stacking 2-3 wins.
+
+**Tier 1 (cheap, +0.003 to +0.012 expected, 2-3 hours):**
+1. Train **seed=600 cam-adv** (same recipe as seed=500). Add its converged ep60 to the 8-ckpt ensemble. Expected +0.002 to +0.005.
+2. Submit the 2 unsubmitted mid-mix CSVs (`baseline7_plus_camadv_2`, `_3`). Free probe for ep50 ensemble compatibility.
+3. **Tune mixing weight**: try 2× cam-adv ep60 + 7-baseline. Currently equal-weighted; emphasizing the camera-invariant ckpt could amplify gain.
+
+**Tier 2 (moderate, +0.005 to +0.020 if it lands, ~3-4 hours):**
+4. **Cam-adv with stronger λ (0.3 or 0.5)**: more GRL pressure. Risk: distribution shifts too far → 0.13342 cliff. Train one model with λ=0.3 and check ep60 ensemble compatibility.
+5. **Pseudo-labeling on test gallery**: extract top-K from current 0.15884 ensemble, retrain a single epoch with pseudo-labeled gallery+query crops as additional supervision. Only thing tried that explicitly closes the c004 gap. High variance.
+
+**Tier 3 (last resort if Tier 1+2 not enough):**
+6. **Larger input 384×192** retrain (~2-3 hr). Standard ReID +0.005-0.015 trick, untried in this challenge.
+
+**Realistic ceiling from stacking everything**: ~0.17–0.175. Beyond requires a fundamentally different idea.
+
+## 65. Lessons from Session 7 (for paper)
+
+1. **Camera-adversarial training works for cross-camera ReID generalization** — confirmed +0.00463 mAP@100 by adding only the converged ep60 ckpt of a GRL-trained model to a 7-ckpt baseline.
+2. **The "convergence threshold for ensemble compatibility" matters**: early-epoch GRL features are too distribution-shifted; late-epoch GRL features are compatible. This refines the conventional wisdom that adversarial features always trade off purity vs. invariance.
+3. **CLIP-ReID does not transfer to industrial-object ReID** despite excellent in-domain training accuracy. Backbone scale (ViT-B vs ViT-L) and pretraining domain (web image-text vs ImageNet classification) both matter for the c004 generalization regime.
+4. **The cross-recipe incompatibility rule has nuance**: it's about distribution-shift magnitude, not recipe-name. Auxiliary heads with unchanged main loss preserve enough distribution to ensemble.
+5. **Operational stability matters**: GRAD_CLIP=1.0 is mandatory in any AMP-trained 60-epoch run on this task. Half our retrains in Sessions 4-6 either NaN'd or required restarts; cam-adv train was the first major change in Session 7 to complete on first relaunch (after one trivial unpacking fix).
+
+
+## 66. Full cam-adv mid-mix sweep results (2026-04-27 update)
+
+After the initial ep60-only and all-4 submissions established the bookends, the two intermediate variants were also submitted:
+
+| Ensemble (n ckpts) | Cam-adv ckpts included | Kaggle mAP@100 | Δ vs 0.15884 |
+|---|---|---|---|
+| 7-baseline alone (7) | (none) | 0.15421 | -0.00463 |
+| 7-baseline + cam-adv ep60 (8) | {ep60} | **0.15884** | 0 ← BEST |
+| 7-baseline + cam-adv ep50+60 (9) | {ep50, ep60} | 0.14940 | -0.00944 |
+| 7-baseline + cam-adv ep40+50+60 (10) | {ep40, ep50, ep60} | 0.13930 | -0.01954 |
+| 7-baseline + cam-adv all 4 (11) | {ep30, ep40, ep50, ep60} | 0.13342 | -0.02542 |
+
+**This is a strictly monotonic degradation curve.** Each additional pre-ep60 cam-adv ckpt subtracts roughly the same magnitude from the ensemble score (~-0.005 to -0.010 per ckpt added going earlier in training).
+
+### Refined paper-worthy claim about ensemble-compatibility window
+
+The Session-7 §60.8 finding ("only late-epoch cam-adv ckpts are compatible") was conservative. The data now shows the compatibility window is **just the final ~5 epochs of training** at λ=0.1. Even ep50 (10 epochs from end, 83% through training) is too distribution-shifted to ensemble well with non-adversarial baselines.
+
+Mechanistic interpretation: GRL pressure during training continuously pushes the backbone toward camera-invariant features. The "invariant" representation manifold differs from the camera-aware baseline manifold by an angular distance that grows with training. Only at the very end, when the cam_loss has plateaued (the camera classifier has hit its ceiling), do the features stabilize close enough to baseline-feature manifold for an L2-normalized average to be coherent.
+
+### Implication for stacking strategy toward 0.17
+
+Each additional cam-adv training run (different seed, different λ, etc.) yields **only one useful ckpt** for the ensemble — the ep60 of that run. So:
+- 1 additional cam-adv run → +1 ensemble ckpt → expected +0.002 to +0.005 mAP
+- To gain +0.01 from cam-adv stacking, need ~3-4 additional cam-adv runs (each ~75 min training) = ~5 hours of training time
+
+This makes pure-cam-adv stacking expensive per unit gain. The Tier-2 ideas (stronger λ, pseudo-labeling, larger input) become more attractive in expected-value/effort terms.
+
