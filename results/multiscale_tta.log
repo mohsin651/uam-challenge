@@ -1,0 +1,254 @@
+num_query: 928, gallery: 2844
+
+========= scale 224x112 (grid 14x7) =========
+  ckpt: model_vitlarge_256x128_60ep/part_attention_vit_30.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y14 * num_x7
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 102, 1024]) with height:14 width: 7
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+/workspace/miuam_challenge_diff/.venv/lib/python3.10/site-packages/torch/nn/init.py:412: UserWarning: Initializing zero-element tensors is a no-op
+  warnings.warn("Initializing zero-element tensors is a no-op")
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep/part_attention_vit_40.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y14 * num_x7
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 102, 1024]) with height:14 width: 7
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep/part_attention_vit_50.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y14 * num_x7
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 102, 1024]) with height:14 width: 7
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep_seed42/part_attention_vit_30.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y14 * num_x7
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 102, 1024]) with height:14 width: 7
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep_seed42/part_attention_vit_40.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y14 * num_x7
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 102, 1024]) with height:14 width: 7
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep_seed42/part_attention_vit_50.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y14 * num_x7
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 102, 1024]) with height:14 width: 7
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep_seed42/part_attention_vit_60.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y14 * num_x7
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 102, 1024]) with height:14 width: 7
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_camadv_seed500/part_attention_vit_60.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y14 * num_x7
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 102, 1024]) with height:14 width: 7
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+
+========= scale 256x128 (grid 16x8) =========
+  ckpt: model_vitlarge_256x128_60ep/part_attention_vit_30.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep/part_attention_vit_40.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep/part_attention_vit_50.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep_seed42/part_attention_vit_30.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep_seed42/part_attention_vit_40.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep_seed42/part_attention_vit_50.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep_seed42/part_attention_vit_60.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_camadv_seed500/part_attention_vit_60.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+
+========= scale 288x144 (grid 18x9) =========
+  ckpt: model_vitlarge_256x128_60ep/part_attention_vit_30.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y18 * num_x9
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 166, 1024]) with height:18 width: 9
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep/part_attention_vit_40.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y18 * num_x9
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 166, 1024]) with height:18 width: 9
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep/part_attention_vit_50.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y18 * num_x9
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 166, 1024]) with height:18 width: 9
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep_seed42/part_attention_vit_30.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y18 * num_x9
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 166, 1024]) with height:18 width: 9
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep_seed42/part_attention_vit_40.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y18 * num_x9
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 166, 1024]) with height:18 width: 9
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep_seed42/part_attention_vit_50.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y18 * num_x9
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 166, 1024]) with height:18 width: 9
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_256x128_60ep_seed42/part_attention_vit_60.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y18 * num_x9
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 166, 1024]) with height:18 width: 9
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  ckpt: model_vitlarge_camadv_seed500/part_attention_vit_60.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y18 * num_x9
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 166, 1024]) with height:18 width: 9
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+  → /workspace/miuam_challenge_diff/results/multiscale_3sizes_dba8_k15_lam0275_submission.csv
+  → /workspace/miuam_challenge_diff/results/multiscale_native256_dba8_k15_lam0275_submission.csv
+  → /workspace/miuam_challenge_diff/results/multiscale_only224_dba8_k15_lam0275_submission.csv
+  → /workspace/miuam_challenge_diff/results/multiscale_only288_dba8_k15_lam0275_submission.csv
+  → /workspace/miuam_challenge_diff/results/multiscale_256_288_dba8_k15_lam0275_submission.csv

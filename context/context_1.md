@@ -1636,3 +1636,224 @@ Each additional cam-adv training run (different seed, different λ, etc.) yields
 
 This makes pure-cam-adv stacking expensive per unit gain. The Tier-2 ideas (stronger λ, pseudo-labeling, larger input) become more attractive in expected-value/effort terms.
 
+
+## 67. Weighting saturation finding (2026-04-27)
+
+Tested `1.5× cam-adv-ep60 + 1× each baseline-7` → Kaggle 0.15427.
+
+| Ensemble | cam-adv weight | Score | Δ |
+|---|---|---|---|
+| baseline7 + 0× cam-adv | 0 | 0.15421 | — |
+| baseline7 + 1× cam-adv ep60 | 1.0 | **0.15884** | +0.00463 |
+| baseline7 + 1.5× cam-adv ep60 | 1.5 | 0.15427 | -0.00457 vs 0.15884 |
+
+**Conclusion**: the cam-adv contribution to the ensemble peaks sharply at exactly 1× equal weighting. Pushing the weight to 1.5× already collapses the gain almost completely. By extrapolation, 2× and 3× will be even worse (DO NOT submit those CSVs).
+
+**Mechanistic interpretation** (paper-relevant): adding the converged cam-adv ckpt with weight w to the baseline-7 sum produces a feature `f = sum(baseline) + w * f_camadv`. After L2-normalization, the angular position of `f` between the baseline manifold and the cam-adv manifold is governed by the relative norms. With baseline=7 ckpts already L2-normalized + summed, ||sum(baseline)|| ≈ sqrt(7) when ckpts are loosely correlated, while ||f_camadv||=1. So at w=1, cam-adv contribution to the angle is ~1/(1+sqrt(7)) ≈ 27%. At w=1.5, it jumps to ~36%, which apparently crosses the distribution-compatibility threshold — same threshold that made adding ep50 hurt.
+
+**Refined ensemble-compatibility rule**: there's a sharp angular-distance threshold (somewhere between 27% and 36% of the angular budget) for cam-adv features in the ensemble. Below it: complementary. Above it: distribution shift dominates and hurts.
+
+**Implication for tomorrow's plan**: more cam-adv ep60 ckpts at 1× weighting each is the safer scaling axis. Each new cam-adv ckpt adds ~1/(N+1) angular contribution, all of them within the safe regime as long as N grows together.
+
+
+## 68. Class-imbalance discovery + trafficsignal-specialist proposal (2026-04-27)
+
+User proposed training class-specialist ReID models. Investigated the per-class breakdown of training data:
+
+| Class | Train images | Train IDs | Query (c004) | Gallery (c001-c003) |
+|---|---|---|---|---|
+| **trafficsignal** | 7568 (68%) | 800 (72%) | 582 (63% of queries) | 1836 (65% of gallery) |
+| crosswalk | 1532 | 111 | 91 | 354 |
+| container | 1189 | 87 | 167 | 261 |
+| rubbishbins | 886 | 115 | 88 | 393 |
+| TOTAL | 11175 | 1113 | 928 | 2844 |
+
+**Key finding**: trafficsignal dominates the dataset (~70% of images, IDs, AND queries). Our current unified PAT model spends ~70% of its softmax classifier capacity on this single class while still being constrained to discriminate ALL classes.
+
+**Specialist viability assessment**:
+- **trafficsignal specialist** = highly viable. 800 IDs is comfortably above ReID viability threshold (~300-500 IDs). 63% of queries land here — even a +1% lift on this class's mAP gives +0.6% overall.
+- **container/rubbishbins/crosswalk specialists** = data-starved at 87-115 IDs each. Below typical ReID viability. Likely UNDERperform unified model.
+
+**Recommended hybrid** (added to the toward-0.17+ plan):
+1. Train ONE trafficsignal-only specialist: filter `train.csv` to trafficsignal images, retrain PAT with same recipe, 800 IDs in classifier head.
+2. Keep the unified model for the other 3 classes (their data is already in unified training).
+3. At inference: route based on `query_classes.csv` — trafficsignal queries go to specialist, others to unified ensemble.
+
+**Why this could beat seed-stacking for the same training budget**: seed-stacking attacks RANDOM error correlation; class-specialization attacks a SYSTEMATIC capacity-allocation bias. The unified model's features must discriminate across-class AND within-class; a specialist's features can be 100% within-class which gives finer-grained discrimination exactly where 63% of queries live.
+
+**Expected gain**: +0.005 to +0.015 if trafficsignal specialist generalizes to c004 trafficsignal better than the unified model. Honest range — some risk it underperforms because unified-model already had access to all 800 trafficsignal IDs.
+
+**Cost**: ~75 min training + small inference-router script. Fits naturally into tomorrow's plan alongside seed=600 cam-adv.
+
+## 69. Updated plan toward 0.17+ (end of Session 7, 2026-04-27)
+
+Refined after the 1.5× weighting saturation finding (§67) and the trafficsignal-specialist analysis (§68):
+
+**Current best**: 0.15884 (8-ckpt: 7-baseline + 1× cam-adv ep60).
+
+**Tomorrow's pipeline** (ranked by expected EV):
+
+| Order | Action | Time | Expected Δ |
+|---|---|---|---|
+| 1 | Train **seed=600 cam-adv** → harvest ep60 → 9-ckpt ensemble | 75 min | +0.002 to +0.005 |
+| 2 | Train **trafficsignal-only specialist** (PAT, same recipe, 800 IDs) + inference router | ~90 min | +0.005 to +0.015 |
+| 3 | Train **seed=700 cam-adv** → 10-ckpt ensemble (if time) | 75 min | +0.001 to +0.003 |
+| 4 | **Pseudo-labeling on c004 query crops** from 0.16+ ensemble (last-resort big swing) | ~3 hr | +0.005 to +0.020 (high variance) |
+
+Realistic stacked target: 0.165–0.175. Specialist + seed-stacking together is ~+0.007–+0.020.
+
+**Things NOT to retry** (consolidated dead-list across all 7 sessions): UAM merged training data, DINOv2 backbone, EVA backbone, CLIP-ReID backbone (ViT-B), Circle Loss, ArcFace (any margin), EMA-trained ckpts, multi-layer CLS concat, h-flip TTA, part-token concat, deep_sup at aux=0.1, heavy-aug, query expansion α=0.7/K=3, DBA k≥10 or k≤5, λ<0.25 or λ>0.32, k1=12 with current DBA, 1.5×/2×/3× cam-adv weighting (saturated at 1×), adding any cam-adv ckpt earlier than ep60 to ensemble, container/crosswalk/rubbishbins specialists (data-starved).
+
+
+## 70. Disk cleanup at end of Session 7 (2026-04-27)
+
+Freed 7.0 GB to make room for tomorrow's training runs. Disk: 40/50 GB → 33/50 GB used (79% → 65%, 18 GB free).
+
+**Deleted:**
+- `/workspace/CLIP-ReID/output_urban2026/` (3.4 GB) — 6 ckpts of confirmed dead-end CLIP-ReID ViT-B model (0.09788). Source code, configs, training scripts, dataset adapter, and inference pipeline preserved at `/workspace/CLIP-ReID/` for paper appendix.
+- `models/model_vitlarge_camadv_seed500/part_attention_vit_best_10.pth` (1.2 GB) — artifact saved as "best" only because the in-domain eval reports 100% at every epoch (the validation set shares cameras with training). Same content as ep10.
+- `models/model_vitlarge_camadv_seed500/part_attention_vit_10.pth` (1.2 GB) — far below ensemble-compatibility threshold; unused.
+- `models/model_vitlarge_camadv_seed500/part_attention_vit_20.pth` (1.2 GB) — same.
+
+**Retained (production use):**
+- `models/model_vitlarge_256x128_60ep/{ep30,40,50}.pth` — baseline seed=1234
+- `models/model_vitlarge_256x128_60ep_seed42/{ep30,40,50,60}.pth` — baseline seed=42
+- `models/model_vitlarge_camadv_seed500/{ep30,40,50,60}.pth` — cam-adv (ep60 is in current 0.15884 best ensemble; ep30/40/50 documented for paper figure on per-epoch ensemble-degradation curve)
+- All CSV submissions in `results/` and `backup_score/`
+- CLIP-ReID source tree
+
+
+## 71. Multi-scale TTA dead-end (2026-04-28)
+
+Submitted `multiscale_3sizes` (8-ckpt ensemble × 3 scales [224×112, 256×128, 288×144], features L2-normalized + averaged per-ckpt) → **0.14885** (-0.00999 vs 0.15884).
+
+**Mechanism for the regression:** ViT pos_embed is sized to the patch grid; trained at 256×128 (16×8 grid = 132 tokens with 1+3 extras). At 224×112 (14×7=102) and 288×144 (18×9=166), pos_embed is bilinearly interpolated to fit. The interpolation works numerically but introduces a calibration drift: features at non-trained scales lie on a slightly different manifold than the trained one. Averaging across scales pulls the ensemble feature off the trained manifold → ranking worse.
+
+**Refined rule for ViT-based ReID TTA:** any TTA that requires changing the input scale beyond what the model was trained on hurts. The model's features are scale-coupled to its training resolution because pos_embed is parameterized.
+
+What COULD work but was untried:
+- **Multi-scale at training time** (train one model with random scales 224-288 in transforms) — would make features scale-robust. But this is a training-time change, not test-time TTA.
+- **5-crop / 10-crop TTA at fixed 256×128**: take multiple 256×128 crops from a slightly larger upsampled image. Avoids pos_embed interpolation entirely. Untried.
+
+
+## 72. Cam-adv seed=600 training + stacking failure (2026-04-28)
+
+### 72.1. Setup
+After multi-scale TTA failure (§71), pivoted to seed-stacking: train another cam-adv run at SEED=600 with otherwise-identical hyperparameters as SEED=500 (λ=0.1, weight=1.0, 60 epochs, BASE_LR=3.5e-4, GRAD_CLIP=1.0, ImageNet pretrain). Hypothesis: each new cam-adv seed yields a converged ep60 ckpt that adds at 1× weight to the ensemble for ~+0.002 to +0.005, per the seed-stacking math in §65.
+
+**File `config/UrbanElementsReID_train_camadv_seed600.yml`** (NEW): copy of cam-adv yaml with SEED=600 and LOG_NAME suffix. All other hyperparameters preserved.
+
+### 72.2. Training
+Launched in detached tmux session `ca600` at 09:05:21. Single RTX 4090.
+
+Throughput: ~135–148 samples/s, ~70 sec/epoch. Total wall time: 75 min. Six checkpoints saved at ep10/20/30/40/50/60 (1.22 GB each).
+
+Loss trajectory (clean, no NaN/Inf, no surprises):
+| Epoch | total_loss | reid_loss | pc_loss | Acc |
+|---|---|---|---|---|
+| 1, iter 120 | 9.606 | 9.164 | 0.442 | 0.056 |
+| 52, iter 120 | 2.476 | 2.475 | 0.001 | 0.984 |
+| 53, iter 120 | 2.451 | 2.449 | 0.002 | 0.984 |
+
+End-of-training quirk: post-training "best epoch" reload tried to load `part_attention_vit_10.pth` (the first epoch to register 100% in-domain mAP gets marked "best" — meaningless given §60.5 in-domain-eval caveat). I had pre-emptively deleted ep10/20 mid-training to free disk for ep60 + best-ckpt save. Resulted in `FileNotFoundError: part_attention_vit_10.pth` after training otherwise completed cleanly. **Net impact: zero** — ep60 saved correctly; the "best_X" artifact was useless anyway. Production ep60 ckpt at `models/model_vitlarge_camadv_seed600/part_attention_vit_60.pth`.
+
+### 72.3. Inference: 9-ckpt ensemble (cam-adv s500 + s600 added)
+
+**File `camadv_s600_inference.py`** (NEW): equal-weight 1× sum of 7-baseline + cam-adv s500 ep60 + cam-adv s600 ep60 (total 9 ckpts). Same proven post-proc: DBA(k=8), rerank(k1=15, k2=4, λ=0.275), class-group filter.
+
+**Submitted to Kaggle** (`results/camadv_s500_s600_baseline7_submission.csv`): **0.14170**.
+
+| Ensemble | Cam-adv ckpts (1× each) | Score | Δ vs 0.15884 |
+|---|---|---|---|
+| 7-baseline | 0 | 0.15421 | -0.00463 |
+| 7-baseline + s500-ep60 | 1 | **0.15884** | 0 ← BEST |
+| 7-baseline + s500-ep60 + s600-ep60 | 2 | 0.14170 | **-0.01714** |
+
+### 72.4. Why seed-stacking failed: the angular-weight threshold
+
+Going back to the §67 mechanistic interpretation. After L2-norm-then-sum:
+- Baseline-7 sum: `||sum_7(L2-normed)||` ≈ √7 if ckpts are loosely correlated
+- Cam-adv-1: `||f_camadv||` = 1
+- Angular contribution of cam-adv = 1/(1+√7) ≈ **27%** at single ckpt, 1× weight → COMPATIBLE
+- Angular contribution at 1.5× single ckpt = 1.5/(1.5+√7) ≈ **36%** → HURT (0.15427)
+- Angular contribution at 2 cam-adv ckpts × 1× = √2/(√2+√7) ≈ **35%** → HURT (0.14170)
+
+Both 1.5× single ckpt AND 2× separate ckpts produce ~same total cam-adv angular weight (~35-36%), and both regress similarly. **This confirms the angular-weight threshold hypothesis from §67**.
+
+### 72.5. Implication for the toward-0.165+ plan
+
+Seed-stacking cam-adv at 1× per ckpt is fundamentally bounded by the angular threshold. It doesn't matter how many cam-adv seeds we train if the ensemble's L2 sum saturates around ~27% cam-adv contribution.
+
+**Two ways to bypass this hypothetically** (untried, paper-worthy):
+1. **Down-weight cam-adv ckpts when stacking**: each at 0.5× → 2 ckpts total = 1× equivalent (same as single ckpt). Doesn't gain new info though, just "averages" the cam-adv signal across seeds. Maybe +0.001 if it reduces noise.
+2. **Stack more BASELINE-style ckpts** to grow the baseline norm so cam-adv stays at 27%: e.g., baseline-9 + 2 cam-adv keeps cam-adv at ~27% angular weight. But growing the baseline arm requires training MORE plain-recipe seeds, which has its own NaN risk (Session 5).
+
+For practical purposes, **cam-adv saturation is hit**. The path to 0.165+ now must come from a *structurally different* signal source — most viable being:
+- Pseudo-labeling on c004 query crops (Path E, untried) — directly attacks c004 generalization gap
+- Larger input 384×192 retrain (Path F, untried) — different feature scale
+- UAM SSL pretraining (Path D, untried) — different prior
+
+### 72.6. Refined updated dead-list (Session 7 continued)
+- Stacking 2 cam-adv ckpts (s500 + s600) at 1× each in the 7-baseline ensemble — **DEAD** (0.14170, regress -0.017)
+- Stacking 1.5× weighting on single cam-adv ckpt — **DEAD** (already in §67, 0.15427)
+- Multi-scale TTA at inference (224 + 256 + 288 averaged) — **DEAD** (§71, 0.14885)
+- Trafficsignal-only PAT specialist (router for trafficsignal queries) — **DEAD** (0.14301)
+
+### 72.7. Disk-management fingerprint for paper reproducibility
+Mid-training cleanup: deleted ep10, ep20 of seed=600 cam-adv before training finished, to free 2.4 GB for ep60 (1.22 GB) + post-training "best" save (1.22 GB). Disk went 4.0 GB → 6.3 GB free. Training completed normally for ep30/40/50/60. The post-training best-reload attempt failed due to missing ep10 (harmless — those ckpts are useless for ensembling per §60.8).
+
+Post-training cleanup: ep30/40/50 of seed=600 cam-adv are unused for ensemble (only ep60 is); pending user confirmation before deleting (would free 3.6 GB).
+
+
+## 73. Pseudo-labeling result (2026-04-28, 4th submission of day)
+
+### 73.1. Pipeline
+1. **Extract pseudo-labels** (`pseudo_label_extract.py`): used the 0.15884 8-ckpt ensemble → DBA + rerank distance matrix + class-group mask. Mutual nearest neighbor: 174 pairs (18.8% of 928 queries). Median-distance filter: kept 87 high-confidence pairs.
+2. **Build subset** (`build_pseudo_train_subset.py`): created `/workspace/Urban2026_pseudo/` with 11175 original train + 87 pseudo-query (c004) + 87 pseudo-gallery (c001-c003) images. Pseudo-IDs 1200+. Filename collision avoided via `pseudo_query_NNNNNN.jpg` and `pseudo_gallery_NNNNNN.jpg` prefixes (queries and gallery both start at 000001.jpg, so collision was guaranteed without prefixing).
+3. **Fine-tune** (`config/UrbanElementsReID_train_pseudo.yml`): warm-start from baseline seed=42 ep60 via `MODEL.FINETUNE_FROM`. LR=3e-5 (1/10× base), 10 epochs, SEED=900, 2-epoch warmup. Saved ep5 + ep10 only.
+4. **Inference** (`pseudo_inference.py`): added pseudo-tuned ep10 ckpt to the 8-ckpt baseline ensemble at 1× weight. DBA k=8, rerank k1=15/k2=4/λ=0.275, class-group filter.
+
+### 73.2. Training trajectory
+| Ep | total_loss | reid_loss | pc_loss | Acc |
+|---|---|---|---|---|
+| 1 | 8.441 | 7.176 | 1.265 | 0.090 |
+| 2 | 6.981 | 6.915 | 0.067 | 0.455 |
+| 5 | 5.946 | 5.942 | 0.005 | 0.658 |
+| 7 | 5.260 | 5.256 | 0.004 | 0.616 |
+| 10 | 4.284 | 4.258 | 0.026 | 0.613 |
+
+Acc plateaued at ~0.61 (vs 0.99 for full-data baseline). The classifier head was reset (87 new pseudo-IDs added), explaining why ep1 starts at 0.09. The 60% ceiling is itself informative: the pseudo-labels are noisy enough that the model CAN'T fully memorize them. Wall time: ~13 min.
+
+### 73.3. Submission result
+**Submitted `pseudo_baseline8_plus_pseudo1x_submission.csv`**: **0.15677** (-0.00207 vs 0.15884).
+
+The pseudo-tuned ckpt added at 1× weight gave a small REGRESSION. Diagnostic:
+- Angular weight of pseudo ckpt: 1/(1+√8) ≈ 26% (similar to cam-adv s500 at 27% which was a +0.00463 win)
+- So angular-threshold (§67) is NOT the issue
+- Conclusion: pseudo-tuned features are too SIMILAR to baseline (didn't add complementary signal) and slightly noisier (small regression)
+
+### 73.4. Why pseudo-labeling underperformed
+- **Sample efficiency**: 87 pseudo-pairs = 174 c004-or-paired images, 0.8% of training data. Too small to shift the model meaningfully toward camera-invariance.
+- **Label noise**: even with mutual NN + median filter, our 0.15884 ensemble's top-1 accuracy is ~25-30% (mAP@100=0.16 → CMC-1 estimate ~25%). So roughly 70% of "high-confidence" pseudo-labels are still WRONG identities, just confidently wrong.
+- **Conservative warm-start + low LR**: fine-tuning at LR=3e-5 from a strong base (seed=42 ep60) limited how much the model could adapt to pseudo-labels.
+
+### 73.5. Possible iterations on pseudo (untried, paper-worthy)
+- **Top-K=3 instead of top-1** for each query → 3× more c004 images, but more noise per pair
+- **Iterative pseudo-labeling**: use the pseudo-tuned ckpt to extract NEW pseudo-labels (now slightly better camera-aware), retrain. 2-3 iters typical.
+- **Higher LR**: 1e-4 instead of 3e-5 to allow more adaptation
+- **Weight 0.5×** of pseudo ckpt in ensemble — keeps angular weight at ~14% (low, less risk) but also less signal
+- **DBSCAN clustering** of c004 features for cluster-based pseudo-labels (more sample-efficient than top-1)
+
+None tried this session — moving to UAM SSL pretraining (path D from the pre-Session-7 plan, finally tried).
+
+### 73.6. Status of all paths after Session 7
+
+| Path | Result |
+|---|---|
+| Multi-scale TTA | DEAD (0.14885) |
+| Trafficsignal specialist | DEAD (0.14301) |
+| 1.5× cam-adv weighting | DEAD (0.15427) |
+| Cam-adv seed-stacking (s500+s600) | DEAD (0.14170, angular threshold) |
+| Pseudo-labeling 87-pair top-1 | NEUTRAL (0.15677) |
+| **0.15884 still the best** | (set 2026-04-26, 7-baseline + cam-adv s500 ep60) |
+

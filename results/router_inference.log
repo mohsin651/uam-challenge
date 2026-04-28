@@ -1,4 +1,67 @@
-num_query: 928, cross-group mask shape: (928, 2844)
+num_query: 928, gallery: 2844
+  TS queries: 582, TS gallery: 1836
+  non-TS queries: 346, non-TS gallery: 1008
+
+  specialist 4-ckpt extraction:
+    model_vitlarge_trafficsignal_seed800/part_attention_vit_30.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+/workspace/miuam_challenge_diff/.venv/lib/python3.10/site-packages/torch/nn/init.py:412: UserWarning: Initializing zero-element tensors is a no-op
+  warnings.warn("Initializing zero-element tensors is a no-op")
+===========building our part attention vit===========
+Loading trained model from /workspace/miuam_challenge_diff/models/model_vitlarge_trafficsignal_seed800/part_attention_vit_30.pth
+    model_vitlarge_trafficsignal_seed800/part_attention_vit_40.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+Loading trained model from /workspace/miuam_challenge_diff/models/model_vitlarge_trafficsignal_seed800/part_attention_vit_40.pth
+    model_vitlarge_trafficsignal_seed800/part_attention_vit_50.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+Loading trained model from /workspace/miuam_challenge_diff/models/model_vitlarge_trafficsignal_seed800/part_attention_vit_50.pth
+    model_vitlarge_trafficsignal_seed800/part_attention_vit_60.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+Loading trained model from /workspace/miuam_challenge_diff/models/model_vitlarge_trafficsignal_seed800/part_attention_vit_60.pth
+
+  specialist ep60-solo extraction:
+    model_vitlarge_trafficsignal_seed800/part_attention_vit_60.pth
+using Transformer_type: part token vit as a backbone
+using stride: [16, 16], and patch number is num_y16 * num_x8
+using drop_out rate is : 0.0
+using attn_drop_out rate is : 0.0
+using drop_path rate is : 0.1
+Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
+Load 297 / 299 layers.
+Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
+===========building our part attention vit===========
+Loading trained model from /workspace/miuam_challenge_diff/models/model_vitlarge_trafficsignal_seed800/part_attention_vit_60.pth
 
   baseline 7-ckpt extraction:
     model_vitlarge_256x128_60ep/part_attention_vit_30.pth
@@ -10,8 +73,6 @@ using drop_path rate is : 0.1
 Resized position embedding from size:torch.Size([1, 197, 1024]) to size: torch.Size([1, 132, 1024]) with height:16 width: 8
 Load 297 / 299 layers.
 Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pretrained/jx_vit_large_p16_224-4ee7a4dc.pth
-/workspace/miuam_challenge_diff/.venv/lib/python3.10/site-packages/torch/nn/init.py:412: UserWarning: Initializing zero-element tensors is a no-op
-  warnings.warn("Initializing zero-element tensors is a no-op")
 ===========building our part attention vit===========
 Loading trained model from /workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep/part_attention_vit_30.pth
     model_vitlarge_256x128_60ep/part_attention_vit_40.pth
@@ -82,6 +143,7 @@ Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pret
 Loading trained model from /workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_60.pth
 
   cam-adv ep60 extraction:
+    model_vitlarge_camadv_seed500/part_attention_vit_60.pth
 using Transformer_type: part token vit as a backbone
 using stride: [16, 16], and patch number is num_y16 * num_x8
 using drop_out rate is : 0.0
@@ -93,25 +155,9 @@ Loading pretrained ImageNet model......from /workspace/miuam_challenge_diff/pret
 ===========building our part attention vit===========
 Loading trained model from /workspace/miuam_challenge_diff/models/model_vitlarge_camadv_seed500/part_attention_vit_60.pth
 
-=== A. weighting variants ===
-  → /workspace/miuam_challenge_diff/results/freeprobe_w1.5xcamadv_dba8_k15_lam0275_submission.csv
-  → /workspace/miuam_challenge_diff/results/freeprobe_w2.0xcamadv_dba8_k15_lam0275_submission.csv
-  → /workspace/miuam_challenge_diff/results/freeprobe_w3.0xcamadv_dba8_k15_lam0275_submission.csv
-  → /workspace/miuam_challenge_diff/results/freeprobe_b0.50x_w1xcamadv_dba8_k15_lam0275_submission.csv
-  → /workspace/miuam_challenge_diff/results/freeprobe_b0.75x_w1xcamadv_dba8_k15_lam0275_submission.csv
-
-=== B. DBA-k sweep on 0.15884 ensemble ===
-  → /workspace/miuam_challenge_diff/results/freeprobe_dba6_k15_lam0275_submission.csv
-  → /workspace/miuam_challenge_diff/results/freeprobe_dba7_k15_lam0275_submission.csv
-  → /workspace/miuam_challenge_diff/results/freeprobe_dba9_k15_lam0275_submission.csv
-  → /workspace/miuam_challenge_diff/results/freeprobe_dba10_k15_lam0275_submission.csv
-
-=== C. rerank lambda sweep on 0.15884 ensemble ===
-  → /workspace/miuam_challenge_diff/results/freeprobe_dba8_k15_lam250_submission.csv
-  → /workspace/miuam_challenge_diff/results/freeprobe_dba8_k15_lam300_submission.csv
-  → /workspace/miuam_challenge_diff/results/freeprobe_dba8_k15_lam325_submission.csv
-
-=== D. rerank k1 sweep on 0.15884 ensemble ===
-  → /workspace/miuam_challenge_diff/results/freeprobe_dba8_k14_lam0275_submission.csv
-  → /workspace/miuam_challenge_diff/results/freeprobe_dba8_k16_lam0275_submission.csv
-  → /workspace/miuam_challenge_diff/results/freeprobe_dba8_k18_lam0275_submission.csv
+=== generating routed variants ===
+  → /workspace/miuam_challenge_diff/results/router_A_spec4_ts_uni8_nts_submission.csv
+  → /workspace/miuam_challenge_diff/results/router_B_spec4_ts_base7_nts_submission.csv
+  → /workspace/miuam_challenge_diff/results/router_C_spec4plusUni8_ts_uni8_nts_submission.csv
+  → /workspace/miuam_challenge_diff/results/router_D_spec4plusCamAdv_ts_uni8_nts_submission.csv
+  → /workspace/miuam_challenge_diff/results/router_E_specEp60_ts_uni8_nts_submission.csv
