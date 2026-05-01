@@ -1,0 +1,70 @@
+MODEL:
+  PRETRAIN_CHOICE: 'imagenet'
+  PRETRAIN_PATH: '/workspace/miuam_challenge_diff/pretrained'
+  IF_LABELSMOOTH: 'on'
+  IF_WITH_CENTER: 'no'
+  NAME: 'part_attention_vit'
+  NO_MARGIN: True
+  DEVICE_ID: ('0')
+  TRANSFORMER_TYPE: 'vit_large_patch16_224_TransReID'
+  STRIDE_SIZE: [16, 16]
+  # Camera-adversarial preserved (proven +0.005 ensemble add at 256x128).
+  # Hi-res should compound: more pixels per fine-grained urban-object detail
+  # + camera invariance pressure. Both target the c004 generalization gap.
+  CAM_ADV: True
+  NUM_CAMERAS: 3
+  CAM_ADV_LAMBDA: 0.1
+  CAM_ADV_WEIGHT: 1.0
+
+INPUT:
+  # 384x192 = 24x12 patch grid (288 patches + 1 CLS + 3 part = 292 tokens)
+  # vs 256x128 = 16x8 patch grid (132 tokens). 2.21x sequence length.
+  SIZE_TRAIN: [384, 192]
+  SIZE_TEST: [384, 192]
+  REA:
+    ENABLED: False
+  PIXEL_MEAN: [0.5, 0.5, 0.5]
+  PIXEL_STD: [0.5, 0.5, 0.5]
+  LGT:
+    DO_LGT: True
+    PROB: 0.5
+
+DATASETS:
+  TRAIN: ('UrbanElementsReID',)
+  TEST: ('UrbanElementsReID_test',)
+  ROOT_DIR: '/workspace/Urban2026/'
+
+DATALOADER:
+  SAMPLER: 'softmax_triplet'
+  NUM_INSTANCE: 4              # P=8 IDs/batch at bs=32 (vs P=16 at bs=64) — still enough for hard mining
+  NUM_WORKERS: 0               # host fork limits prevent multi-worker dataloader
+
+SOLVER:
+  OPTIMIZER_NAME: 'Adam'
+  MAX_EPOCHS: 60
+  BASE_LR: 0.00035             # kept; cam-adv proven recipe. GRAD_CLIP catches outliers.
+  WARMUP_METHOD: 'linear'
+  WARMUP_EPOCHS: 10
+  WARMUP_FACTOR: 0.01
+  IMS_PER_BATCH: 32            # halved from 64 due to 4.9x attention memory at 292 tokens
+  LARGE_FC_LR: False
+  CHECKPOINT_PERIOD: 10        # save ep10/20/30/40/50/60
+  LOG_PERIOD: 60
+  EVAL_PERIOD: 10
+  WEIGHT_DECAY: 1e-4
+  WEIGHT_DECAY_BIAS: 1e-4
+  BIAS_LR_FACTOR: 2
+  SEED: 800
+  GRAD_CLIP: 1.0               # mandatory after Session 5 NaN incidents
+
+TEST:
+  EVAL: True
+  IMS_PER_BATCH: 32
+  RE_RANKING: False
+  WEIGHT: ''
+  NECK_FEAT: 'before'
+  FEAT_NORM: True
+
+LOG_ROOT: 'models/'
+TB_LOG_ROOT: './tb_log/'
+LOG_NAME: './model_vitlarge_camadv_hires_seed800'

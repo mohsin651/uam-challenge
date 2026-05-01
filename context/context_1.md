@@ -1857,3 +1857,426 @@ None tried this session — moving to UAM SSL pretraining (path D from the pre-S
 | Pseudo-labeling 87-pair top-1 | NEUTRAL (0.15677) |
 | **0.15884 still the best** | (set 2026-04-26, 7-baseline + cam-adv s500 ep60) |
 
+
+## 74. Pseudo-labeling iter-2 result (2026-04-28, 5th submission of day)
+
+### 74.1. Iteration changes
+After iter-1's neutral 0.15677 (§73), iterated with more pseudo data:
+- **TOP_K_PSEUDO**: 1 → 2 (each query paired with top-2 gallery)
+- **APPLY_MEDIAN_FILTER**: True → False (kept all mutual NN pairs, not just top half by distance)
+
+Result: 172 pseudo-IDs (vs 87 before) × 3 images each (1 query + 2 gallery, after dedupe) = **503 pseudo-images** (vs 174 before, 3× expansion). 13 dedupes from gallery-claimed-twice cases.
+
+### 74.2. Training trajectory
+| Ep | Iter-1 Acc | Iter-2 Acc |
+|---|---|---|
+| 1 | 0.090 | 0.087 |
+| 5 | 0.658 | 0.624 |
+| 10 | 0.613 | 0.582 |
+
+Iter-2 Acc lower at every epoch — consistent with more pseudo-IDs (1260 vs 1175 total) being harder to discriminate, especially with noisier top-2 gallery labels. Wall time: ~13 min.
+
+### 74.3. Inference + result
+Tested two ckpts: ep5 (less noise memorization) and ep10 (more adaptation). Submitted ep5 variant.
+
+**Submitted `pseudo2_baseline8_plus_ep5_submission.csv`**: **0.15673** (-0.00211 vs 0.15884, essentially same as iter-1's 0.15677).
+
+### 74.4. Pseudo-labeling DEAD-END verdict
+
+| Iter | Pseudo data | Score | vs 0.15884 |
+|---|---|---|---|
+| 1 | 87 pairs × 2 imgs (174 imgs, 1.6%) | 0.15677 | -0.00207 |
+| 2 | 172 pairs × ~3 imgs (503 imgs, 4.5%) | 0.15673 | -0.00211 |
+
+**3× more pseudo data → essentially identical score**. This strongly suggests the bottleneck is NOT pseudo-data volume but rather:
+1. **Feature manifold sticking**: warm-starting from baseline seed=42 ep60 + LR=3e-5 fine-tunes too gently. The model's features barely move from baseline.
+2. **Label-noise floor**: at our 0.15884 ensemble's CMC@1 ≈ 25-30%, ~70% of mutual-NN top-K pseudo-labels are wrong. More pseudo-pairs = proportionally more wrong labels. The signal-to-noise ratio is constant.
+
+To make pseudo-labeling work at this task would require:
+- **Higher LR** (1e-4 or 3e-4) to allow real adaptation. Risk: catastrophic forgetting of original features → solo regression.
+- **Iterative pseudo-labeling** (use pseudo-tuned model to extract NEW pseudo-labels, repeat 2-3 times). Each iteration's pseudo-labels are slightly better than prior. Untried.
+- **Cluster-based pseudo-labels** (DBSCAN/k-means on combined query+gallery features), not top-K. Better sample efficiency. Untried.
+
+None tried this session — out of submissions for the day.
+
+### 74.5. End-of-Session-7 status: ALL submitted experiments
+
+Daily submissions used today (2026-04-28): **5/5** all regressed:
+1. `router_A_spec4_ts_uni8_nts_submission.csv` (trafficsignal specialist) → **0.14301**
+2. `multiscale_3sizes_dba8_k15_lam0275_submission.csv` (multi-scale TTA) → **0.14885**
+3. `camadv_s500_s600_baseline7_submission.csv` (cam-adv seed-stacking) → **0.14170**
+4. `pseudo_baseline8_plus_pseudo1x_submission.csv` (pseudo iter-1, 87 pairs) → **0.15677**
+5. `pseudo2_baseline8_plus_ep5_submission.csv` (pseudo iter-2, 172 pairs) → **0.15673**
+
+**0.15884 (8-ckpt ensemble: 7-baseline + cam-adv s500 ep60) remains the best score.**
+
+Path forward (only structural angle left untried at this point): **UAM as supervised transfer-learning pretraining** — pretrain PAT on UAM's labeled identities (479 IDs, 6387 images, different city), then full Urban2026 fine-tune with FINETUNE_FROM. The Urban2026 fine-tune washes out UAM-domain biases while preserving urban-object visual concepts. ~45 min UAM pretrain + ~75 min Urban2026 fine-tune = 2 hours wall time.
+
+YAMLs prepared: `config/UrbanElementsReID_pretrain_uam.yml` + `config/UrbanElementsReID_train_after_uam.yml`. Will launch tonight while user is away.
+
+
+## 75. UAM transfer-learning DEAD-END (2026-04-28, last submission of day)
+
+### 75.1. Pipeline + result
+Two-stage chained training:
+- **Stage 1 (UAM supervised pretrain)**: 60 epochs on UAM (479 IDs, 6387 images, c001-c004), starting from ImageNet. ~35 min wall time. ep60 ckpt at `models/model_vitlarge_uam_pretrain_seed1000/part_attention_vit_60.pth`.
+- **Stage 2 (Urban2026 fine-tune)**: 60 epochs on Urban2026 (1088 IDs, 11175 images), warm-started from Stage 1 ep60 via `MODEL.FINETUNE_FROM`. ~75 min wall time. ep30 + ep60 saved at `models/model_vitlarge_after_uam_seed1100/`.
+
+### 75.2. Inference + Kaggle result
+**Submitted `uam_baseline8_plus_ep30_ep60_submission.csv`** (10-ckpt ensemble: 7-baseline + cam-adv s500 ep60 + after-UAM ep30 + ep60, all at 1× weight): **0.14795** (-0.01089 vs 0.15884).
+
+### 75.3. Why UAM pretraining failed (paper-relevant)
+
+Even though Stage 2 was a full 60-epoch fine-tune on Urban2026 ONLY (no UAM data) — meant to "wash out" UAM-domain biases per the §16c follow-up plan — the regression is significant (-1.1%). This is bigger than seed-variance noise (~±0.005), so it's not random.
+
+**Mechanistic interpretation:** the UAM-pretrained backbone's *weight initialization* lay on a different feature manifold than ImageNet's. The 60-epoch Urban2026 fine-tune CANNOT fully forget those weights because:
+- Pretrain epochs (60) >> fine-tune epochs (60) for backbone params
+- Optimizer (Adam, LR=3.5e-4) only nudges weights by small amounts per step
+- The fine-tune classifier head is the only fully-fresh component; the backbone's pretraining lives on as an inductive bias
+
+**Refined rule about external data for ReID:** when source and target domains differ (different cities, different camera setups), even *pretraining-only* use of source data biases the target features. The merged-data experiment (§16c, -0.011) and now the pretrain-only experiment (§75, -0.011) produce identical magnitude regressions — pointing at the same root cause: **domain shift in pretraining persists through full retraining**.
+
+This is consistent with the literature on continual learning / catastrophic-forgetting-resistance: backbone weights "remember" their pretraining distribution.
+
+### 75.4. Possible variants NOT tried
+- **Stage 2 with 100+ epochs** (give the model more time to forget UAM)
+- **Reset earlier transformer blocks to ImageNet at Stage 2 start** (partial-init)
+- **True SSL pretraining** (MAE/DINO) — does NOT learn supervised UAM-identity discrimination, so would have less "UAM identity manifold" inertia
+
+### 75.5. End-of-Session-7 final status
+
+Daily submissions used today (2026-04-28): 5/5
+1. trafficsignal router A → 0.14301 (specialist DEAD)
+2. multiscale_3sizes → 0.14885 (multi-scale TTA DEAD)
+3. cam-adv s500+s600 → 0.14170 (seed-stacking DEAD, angular threshold)
+4. pseudo iter-1 → 0.15677 (pseudo-labeling NEUTRAL)
+5. pseudo iter-2 → 0.15673 (pseudo-labeling NEUTRAL, more pairs didn't help)
+6. uam_baseline8_plus_ep30_ep60 → **0.14795** (UAM transfer-learning DEAD)
+
+**0.15884 (8-ckpt ensemble: 7-baseline + cam-adv s500 ep60) remains the best score across the entire session arc.**
+
+### 75.6. Truly remaining untried angles (post-UAM)
+
+| Angle | Effort | EV |
+|---|---|---|
+| 384×192 input retrain | ~3 hr training | +0.005 to +0.015, 50% probability |
+| DBSCAN cluster pseudo-labels | ~3 hr | +0.005 to +0.015, 30-40% prob |
+| 4-crop / 5-crop TTA (no pos_embed change) | training-free, ~30 min | +0.001 to +0.005, 50% prob |
+| Iterative pseudo with higher LR | ~1 hr | +0.001 to +0.005 (top-K already neutral) |
+| True SSL on UAM (MAE/DINO) | ~5 hr dev + 2 hr train | +0.005 to +0.020, 30-40% prob (high impl. risk) |
+| Combined cam-adv FROM UAM-init | ~2 hr | only useful if UAM helps standalone (it doesn't) → DEAD |
+
+
+## 76. 4-crop TTA + feature centering DEAD-ENDS (2026-04-28, late session)
+
+### 76.1. 4-crop TTA at fixed 256×128 input
+Designed to avoid §71's pos_embed manifold drift: input image upsampled 256×128 → 280×140, then 4 corner crops back at 256×128 (each crop is the trained input size, no pos_embed change). Per-ckpt features averaged across 4 crops, L2-renormalized.
+
+**Submitted `fourcrop_tta_baseline8_submission.csv`**: **0.12599** (-0.0329).
+
+The HUGE regression rules out this approach: corner crops cut off too much object content (10% reduction on each side). Industrial-object queries are tightly framed; corner-cropping discards identity-relevant pixels. Averaging features across these mutilated views produces garbage features.
+
+### 76.2. Feature mean-centering
+Strip per-camera systematic bias by subtracting `mean(query)` from query features and `mean(gallery)` from gallery features, then re-normalize. Diagnostic: `||mean_q - mean_g|| = 0.0706`, cos(mean_q, mean_g) = 0.9959 — means are 8° apart, small but non-zero camera bias.
+
+**Submitted `centering_per_camera_submission.csv`**: **0.13943** (-0.0194).
+
+Significant regression. Tells us the 0.07 mean-difference between c004 query and c001-c003 gallery encodes USEFUL identity-related information, not just camera bias. Subtracting it strips identity signal alongside the bias.
+
+**Refined understanding of the c004 gap (paper-relevant):** the per-camera mean offset isn't a "bias to be debiased" — it's a real shift in *what is identifiable* from c004 viewing angles vs c001-c003. Fixing it requires either:
+- Adding c004 imagery to training (we tried via pseudo-labeling, failed at scale)
+- Using a model architecture more robust to viewpoint changes (we tried backbone swaps, failed)
+- Ignoring the gap and accepting it (current 0.15884 ceiling)
+
+### 76.3. Status update — 7 dead-ends today (2026-04-28)
+| # | Experiment | Score | Δ |
+|---|---|---|---|
+| 1 | Trafficsignal specialist router | 0.14301 | -0.01583 |
+| 2 | Multi-scale TTA (224+256+288) | 0.14885 | -0.00999 |
+| 3 | Cam-adv s500+s600 stacking | 0.14170 | -0.01714 |
+| 4 | Pseudo-labeling 87 pairs | 0.15677 | -0.00207 |
+| 5 | Pseudo-labeling 172 pairs | 0.15673 | -0.00211 |
+| 6 | UAM transfer-learning | 0.14795 | -0.01089 |
+| 7 | 4-crop TTA | 0.12599 | -0.0329 |
+| 8 | Feature mean-centering | 0.13943 | -0.0194 |
+
+**0.15884 holds.** Nothing tested this session approached it.
+
+
+
+---
+
+# Session 8 update — 2026-04-30 / 2026-05-01 (the desperate push for 0.16+)
+
+**Read this AFTER Sessions 1-7 above.** Coming into Session 8 with **0.15884 best** (8-ckpt ensemble: 7-baseline + cam-adv s500 ep60). User's mood: urgent, frustrated, wants 0.16+ NOW. Said top teams are at 0.176+. Three big experiments today, two confirmed dead-ends, one currently training (CycleGAN augmentation).
+
+## 77. Setup notes that broke this session
+
+- **Venv was rebroken** — `pip` not available, only `python3` in `.venv/bin/`. Used `uv pip install --python /workspace/miuam_challenge_diff/.venv/bin/python3 <pkg>` instead.
+- **Process limit (`fork: Resource temporarily unavailable`)** keeps recurring. Workaround: `OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1` (or 2 for training) prefixed on every Python call. DataLoader `NUM_WORKERS: 0` is mandatory now (multiprocess fork blows up).
+- **GPU**: still single RTX 3090, 24 GiB. Roughly 0.85× speed of the 4090 we had in earlier sessions — affects time estimates throughout.
+- **Disk**: started Session 8 at ~22 GB used / 50 GB. After cleanup of failed experiments + CycleGAN data+ckpts, ended around ~50 GB used.
+
+## 78. Experiment 1: DBSCAN cluster-based pseudo-labeling — FAILED
+
+### 78.1. Hypothesis
+Prior pseudo-labeling iter-1 (87 pairs) and iter-2 (172 pairs) both regressed to ~0.157, neutral. Argued the bottleneck was **label noise**, not pipeline. DBSCAN clustering on combined query+gallery features could give cluster-quality pseudo-IDs (multiple gallery images per cluster) instead of just top-K mutual NN. Also bumped LR from 3e-5 to 1e-4 to allow real model adaptation (prior runs capped at Acc 0.61 = barely moved).
+
+### 78.2. Pipeline (new files)
+- `dbscan_pseudo_extract.py` (NEW): runs the proven 0.15884 8-ckpt ensemble feature extraction → DBA k=8 → rerank → class-group filter → DBSCAN on combined q+g features (eps=0.225, min_samples=2, cosine metric). Result: 57 clusters with median 9 images/cluster (519 total pseudo-images vs 174 in iter-1 and 503 in iter-2).
+- `dbscan_pseudo_build_subset.py` (NEW): symlinks original train + 519 pseudo-(query+gallery) images into `/workspace/Urban2026_dbscan_pseudo/`, with new IDs offset 1200+.
+- `config/UrbanElementsReID_train_dbscan_pseudo.yml` (NEW): warm-start FINETUNE_FROM seed42 ep60. **LR=1e-4** (3.3× higher than prior pseudo). 10 epochs. SEED=950. GRAD_CLIP=1.0. LOG_NAME `model_vitlarge_dbscan_pseudo_seed950`.
+- `dbscan_pseudo_inference.py` (NEW): 8-baseline + pseudo-tuned ckpt, multiple weight variants (1×, 0.5×, ep5+ep10).
+
+### 78.3. Training trajectory (much steeper than prior pseudo)
+| Epoch | iter-1 (LR=3e-5) | iter-2 (LR=3e-5) | **DBSCAN (LR=1e-4)** |
+|---|---|---|---|
+| 1 | 0.090 | 0.087 | **0.238** |
+| 5 | 0.658 | 0.624 | ~0.572 (mid-ep) |
+| 10 | 0.613 | 0.582 | **0.919** |
+
+The LR bump worked — model genuinely adapted instead of barely moving.
+
+### 78.4. Kaggle result
+**`dbscan_pseudo_baseline8_plus_ep10_1x_submission.csv` → 0.15465** (-0.00419 vs 0.15884).
+
+**Even worse than prior pseudo.** Acc=0.92 was a *bad* sign, not good — at ~30% pseudo-label noise (typical when source ensemble is at 0.16 mAP), reaching Acc 0.92 means the model memorized ~22% wrong identities. At 1× ensemble weight, the noise drowned the signal.
+
+### 78.5. Conclusion
+**Pseudo-labeling at this dataset is bottlenecked by source-ensemble accuracy, not clustering algorithm.** No amount of cluster engineering fixes that. **Three pseudo-labeling failures in a row** (top-1, top-2, DBSCAN). Don't retry without genuinely different labeling source (e.g., a new model with 0.18+ mAP, which we don't have).
+
+The 4 unsubmitted variant CSVs (`_0p5x`, `_ep5_1x`, `_ep5_ep10`, `_solo_ep10`) are on disk but their diversity profile suggests they'd all land in -0.005 to -0.030 range. Not worth the submission slots.
+
+## 79. Experiment 2: 384×192 hi-res cam-adv — FAILED
+
+### 79.1. Hypothesis
+Pseudo-labeling exhausted. Hi-res training is a textbook ReID lever (+0.005 to +0.015 in literature) we hadn't tried. More pixels = finer features for traffic signs (63% of queries). Would compound with cam-adv (proven +0.005 ensemble add).
+
+### 79.2. Setup (new files)
+- `config/UrbanElementsReID_train_camadv_hires.yml` (NEW): SIZE_TRAIN/TEST [384, 192], IMS_PER_BATCH 32 (halved for VRAM), BASE_LR 3.5e-4 kept, GRAD_CLIP 1.0, SEED 800, CAM_ADV True. Patch grid 24×12 = 288 patches + 4 = 292 tokens (vs 132 at 256×128, 2.21× longer sequence).
+- `config/UrbanElementsReID_test_hires.yml` (NEW): same architecture, SIZE_TEST [384, 192], NUM_WORKERS 0.
+- `camadv_hires_inference.py` (NEW): cross-resolution ensemble inference. Two passes — extract baseline-8 at 256×128, hi-res cam-adv at 384×192 — then sum L2-normed features. Includes `extract_group()` helper that defrosts/refreezes cfg between groups + dataloader rebuild + order sanity assertion. Generates 6 variants (ep60_1x, ep60_0p5x, ep50_60, ep40_50_60, all4, solo_ep60).
+
+### 79.3. Training
+- 305.55M params (+0.4M for cam-adv classifier)
+- VRAM peak: 22 GB / 24 GB (90% of capacity, tight but fit)
+- 317 iters/epoch at bs=32 (vs 175 at bs=64); ~36 samples/sec; ~4.7 min/epoch; total **4h 45min for 60 epochs**
+- Final ep60: total_loss 2.47, Acc 0.982 — clean convergence, no NaN
+- ckpts saved at ep10/20/30/40/50/60 (~7.3 GB total in `models/model_vitlarge_camadv_hires_seed800/`)
+
+### 79.4. Diversity check before submission
+Compared each variant CSV to the 0.15884 baseline:
+| Variant | top-1 differ | top-100 Jaccard |
+|---|---|---|
+| ep60_1x | 47% | 0.835 |
+| ep60_0p5x | 34% | 0.894 |
+| ep50_60 | 58% | 0.762 |
+| ep40_50_60 | 67% | 0.710 |
+| all4 | 72% | 0.685 |
+| solo_ep60 | 92% | 0.495 |
+
+ep60_1x angular contribution = 1/(1+√8) ≈ 26%, just under §67's 27% safe threshold.
+
+### 79.5. Kaggle result
+**`camadv_hires_baseline8_plus_ep60_1x_submission.csv` → 0.14792** (-0.01092 vs 0.15884).
+
+**Same cliff magnitude as multi-scale TTA (-0.0099) and UAM transfer (-0.011).** Pattern is clear: **cross-resolution feature manifolds don't merge**, regardless of training cleanliness. The 384×192 model trained perfectly (Acc 0.982); its features just live on a slightly different manifold than the 256×128 baselines, and L2-normed summing breaks down.
+
+This is the same failure mode as DINOv2/EVA backbone swaps. Resolution shift = manifold shift = ensemble incompatibility.
+
+### 79.6. Conclusion + new dead-list entry
+**384×192 hi-res cam-adv added to 256×128 ensemble** → confirmed dead. Don't retry.
+
+The other 5 hi-res CSVs are all on the same broken manifold; submitting any of them would burn a quota on a guaranteed-regression. None expected to beat 0.15884.
+
+## 80. Two papers analyzed for ideas — both rejected
+
+### 80.1. AT-ReID (Anytime Person Re-ID, USTC, 2025-09)
+- arxiv 2509.16635
+- Their problem: 6 scenarios based on time (day/night × short-term/long-term clothes-changing) + RGB+IR multi-modality
+- Methods: MS-ReID (6 CLS tokens, one per scenario) + MoAE (Mixture of Attribute Experts) + HDW (Hierarchical Dynamic Weighting)
+- **Why it doesn't apply to us**: their architecture is built around scenario diversity. We have ONE scenario (single modality, no clothes-changing, no day/night). Mapping their 6-scenario CLS to our 4-class structure was already tested as the trafficsignal specialist (§68) → 0.14301 dead. MoAE routed by camera fails because c004 has no expert. HDW is irrelevant for our single-task setup. **Cross-dataset generalization** in their paper comes from massive intra-identity diversity in AT-USTC dataset (29.1 captures/person, 11 cameras, 21 months, day+night, clothes-changing) — we can't replicate this for Urban2026.
+- **Verdict**: wrong tool for our problem. Do not implement.
+
+### 80.2. CORE-ReID V2 (Iwate Prefectural University, 2025)
+- arxiv 2508.04036
+- Their problem: Unsupervised Domain Adaptation between source/target person+vehicle ReID datasets with non-overlapping IDs
+- Methods: CycleGAN style transfer + Mean-Teacher + Greedy K-means++ pseudo-labeling + Ensemble Fusion++ (ECAB+SECAB attention modules) + ResNet backbones with top/bottom horizontal split
+- **Why most doesn't apply**: ECAB/SECAB are CNN-feature-map specific, don't port to ViT tokens. Pseudo-labeling already exhausted (3 fails in our prior work). Mean-Teacher EMA tested in Session 4, broke ensemble (-0.012). Their cross-dataset gains come from diverse source domain, not architecture novelty.
+- **The ONE component worth trying**: their **CycleGAN-based domain-aware style transfer** from their vehicle ReID setup (Figure 2/4). Translate c001-c003 training images → c004 style, retain original ID labels, use as data augmentation for PAT training. Directly attacks the c004 generalization gap from a *new angle* never tried in this session arc.
+- User accepted the CycleGAN proposal. See §81 for the full pipeline.
+
+## 81. Experiment 3 (CURRENTLY TRAINING): CycleGAN-augmented cam-adv
+
+### 81.1. Big-picture pipeline
+1. Train CycleGAN: c001-c003 ↔ c004 (~2.5 hr) ✓ DONE
+2. Generate fake-c004 versions of all 11,175 training images (~10 min) ✓ DONE
+3. Build merged dataset: 11,175 real + 11,175 fake-c004 = 22,350, IDs preserved ✓ DONE
+4. Retrain PAT+cam-adv on merged data (~2.3 hr expected, currently running) ⏳ IN PROGRESS
+5. Cross-recipe ensemble inference + variants
+
+### 81.2. CycleGAN setup (new files in `/workspace/cyclegan_data/` and `/workspace/cyclegan_checkpoints/`)
+- Cloned `https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix` to `/workspace/cyclegan/`
+- Installed `dominate` and `wandb` via uv (wandb disabled at runtime via `WANDB_MODE=disabled`)
+- `cyclegan_prep_data.py` (NEW): resizes all c001-c003 train (11,175) → trainA, all c004 query (928) → trainB at 256×128 (PAT's native resolution)
+- Smoke test passed: 11.4M params per generator, 2.8M per discriminator, 256×128 forward+backward at bs=1 uses 18.6 GB / 24 GB. 0.086 s/iter.
+- The newer CycleGAN repo (we cloned) **removed `--gpu_ids` and `--display_id` flags**; CUDA usage is auto via `CUDA_VISIBLE_DEVICES`. It also requires `--num_threads 0` due to host fork limit.
+
+### 81.3. CycleGAN training
+- Launch in tmux session `cyclegan`:
+  ```
+  WANDB_MODE=disabled OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0 \
+    /workspace/miuam_challenge_diff/.venv/bin/python3 /workspace/cyclegan/train.py \
+    --dataroot /workspace/cyclegan_data/urban_c4 \
+    --name urban_c003_to_c004 --model cycle_gan --direction AtoB \
+    --preprocess none --no_flip --batch_size 1 --num_threads 0 \
+    --max_dataset_size 2000 --n_epochs 30 --n_epochs_decay 20 \
+    --save_epoch_freq 10 --checkpoints_dir /workspace/cyclegan_checkpoints \
+    --print_freq 200 --display_freq 99999 --update_html_freq 99999
+  ```
+- 50 epochs total: 30 constant LR + 20 linear decay. max_dataset_size=2000 caps each epoch (otherwise 11,175 iters/ep would take 16 min/ep).
+- Wall time: ~170 sec/ep × 50 ep = **~2 hr 22 min** (started 22:28 UTC, ended ~00:54 UTC next day)
+- Losses healthy throughout (D_A/B stable around 0.2-0.4, cycle_A/B around 1-2). No NaN, no spikes.
+- Checkpoints saved at ep10/20/30/40/50 in `/workspace/cyclegan_checkpoints/urban_c003_to_c004/`
+- Total ckpt size: ~440 MB per epoch save (G_A, G_B, D_A, D_B, latest), ~2.2 GB total
+
+### 81.4. Style-shift verification (RGB stats, ep50 ckpt)
+Sanity check before committing to the full retrain — does the GAN actually learn c004 style?
+
+| Stat | Real c001-c003 | Real c004 | Fake c004 (G_A output) |
+|---|---|---|---|
+| Mean RGB | 0.451, 0.434, 0.414 | 0.339, 0.356, 0.349 | **0.384, 0.391, 0.377** |
+| Std RGB | 0.177, 0.180, 0.190 | 0.155, 0.160, 0.173 | 0.166, 0.167, 0.177 |
+| Distance to c004 | 0.1506 | 0 | **0.0632** |
+
+**Synthetic-c004 sits 58% of the way from c001-c003 to real c004 in RGB color stats.** The GAN learned to:
+1. Reduce overall brightness (→ darker, like c004)
+2. Reduce R/G/B differential (c001-c003 had R>G>B by 0.04; c004 has more uniform channels; fake c004 also more uniform)
+3. Slightly reduce contrast (std 0.18 → 0.17)
+
+Genuine domain shift, not just noise. **Gating step PASSED.**
+
+### 81.5. Generation + dataset merge
+- `cyclegan_generate_fake_c4.py` (NEW): loads `50_net_G_A.pth`, applies to each c001-c003 train image, saves to `/workspace/Urban2026_cyclegan/image_train_fake_c4/`. ~9 min for 11,175 images. Output 122 MB.
+  - Important fix: newer CycleGAN's `define_G()` no longer accepts `gpu_ids` kwarg — call signature is `(input_nc, output_nc, ngf, netG, norm, use_dropout, init_type, init_gain)`. Manually `.cuda()` the model after loading.
+- `cyclegan_build_merged_dataset.py` (NEW): symlinks 11,175 real + 11,175 fake-c004 into `/workspace/Urban2026_cyclegan/image_train/`. Builds merged train.csv (22,350 rows, 1,088 IDs preserved — fake-c004 inherit original labels with `fake_c4_` filename prefix) and train_classes.csv. Symlinks query/test/etc unchanged.
+  - **Design decision**: fake-c004 retain ORIGINAL cameraID (c001/c002/c003), NOT relabeled to c004. Reasoning: cam-adv classifier remains a 3-way head over training cameras; the synthetic-augmented data teaches the model c004-style appearance under camera-invariance pressure from cam-adv. Relabeling to c004 would add a fake 4th camera class that doesn't exist at test time as a labeled training signal.
+
+### 81.6. PAT+cam-adv training on merged data (CURRENTLY RUNNING)
+- `config/UrbanElementsReID_train_camadv_cyclegan.yml` (NEW): identical to the proven cam-adv s500 config except `DATASETS.ROOT_DIR: /workspace/Urban2026_cyclegan/`, `SEED: 1100`, `LOG_NAME: ./model_vitlarge_camadv_cyclegan_seed1100`.
+- Launch in tmux session `camadv_cyclegan` at 02:31 UTC.
+- 22,350 images = 2× normal data → ~140 sec/epoch (vs 70 at native size) → **~2.3 hr expected for 60 epochs**.
+
+### 81.7. Inference (planned, NOT yet run)
+- `cyclegan_camadv_inference.py` (NEW, ready): mirrors the proven cam-adv s500 ep60 1× pattern. Extracts features from baseline-8 + the new cyclegan-trained ckpts, generates 6 variants:
+  1. baseline8 + ep60 @ 1× (primary candidate, mirrors the 0.15884 winning recipe)
+  2. baseline8 + ep60 @ 0.5× (safer angular contribution)
+  3. baseline8 + ep50 @ 1×
+  4. baseline8 + ep50+60 @ 0.5× (per-ckpt)
+  5. baseline8 + ep40+50+60 @ 0.5× (per-ckpt)
+  6. solo ep60 (diagnostic)
+
+### 81.8. Honest probabilities (recorded BEFORE training completes)
+- Win 0.16+: ~30-40% — genuine new attack on c004 gap, recipe-compatible with proven ensemble pattern
+- Neutral 0.156-0.159: 25-30%
+- Regress: 30-40% — risk: CycleGAN may distort traffic-sign details (arrows, text) that are identity-critical (63% of queries are trafficsignal which are directional)
+
+### 81.9. Why this is structurally different from prior failures
+| Prior dead-end | Why it failed | Why CycleGAN-augmented is different |
+|---|---|---|
+| UAM merge | Wrong CITY domain | Synthetic data stays in OUR city distribution |
+| Hi-res 384×192 | Cross-resolution manifold drift | Same 256×128 |
+| Heavy-aug fine-tune | Already-trained model, low LR | From-scratch retrain |
+| Pseudo-labeling × 3 | Source-ensemble label noise | NO pseudo-labels; original real labels preserved on synthetic data |
+| Cross-recipe ensemble | Different feature manifold | Same loss recipe, just augmented data |
+
+The key claim: **synthetic-c004 augmentation lets the model learn c004-style appearance during training while preserving the proven loss/architecture/recipe.** No prior experiment combined these.
+
+## 82. Reproducibility safety (verified at start of Session 8)
+
+**`backup_score/`** is intact and contains everything needed to reproduce 0.15884:
+- `camadv_baseline7_plus_camadv_ep60_0.15884.csv` (the actual winning CSV)
+- `seed1234_ep30/40/50.pth`, `seed42_ep30/40/50/60.pth` (the 7 baseline ckpts, each 1.22 GB)
+- `cycle_loss.py`, `processor_part_attention_vit_processor.py`, `train.py`, `update.py` (the proven code)
+- README.md, RESUME.md, OFFSITE_BACKUP.md (recovery instructions)
+
+**`models/`** also has the live versions:
+- `model_vitlarge_256x128_60ep/` — seed1234 baseline (used in 0.15884)
+- `model_vitlarge_256x128_60ep_seed42/` — seed42 baseline (used in 0.15884)
+- `model_vitlarge_camadv_seed500/part_attention_vit_60.pth` — the cam-adv add-on
+
+**Reproducer command** (unchanged):
+```bash
+cd /workspace/miuam_challenge_diff && source .venv/bin/activate
+python camadv_inference.py
+# generates results/camadv_baseline7_plus_camadv_ep60_submission.csv → 0.15884
+```
+
+NEW work in Session 8 lives in:
+- `/workspace/cyclegan/` (cloned third-party code)
+- `/workspace/cyclegan_data/` (resized GAN training data)
+- `/workspace/cyclegan_checkpoints/` (trained GAN weights)
+- `/workspace/Urban2026_cyclegan/` (merged dataset symlinks)
+- `models/model_vitlarge_dbscan_pseudo_seed950/` (DBSCAN pseudo ckpts)
+- `models/model_vitlarge_camadv_hires_seed800/` (hi-res ckpts)
+- `models/model_vitlarge_camadv_cyclegan_seed1100/` (CycleGAN-augmented cam-adv ckpts, currently training)
+- New scripts: `dbscan_pseudo_*.py`, `cyclegan_*.py`, `camadv_hires_inference.py`
+
+NONE of these touch the proven 0.15884 reproduction artifacts.
+
+## 83. Submissions tally (continuing from §75)
+
+| # | When | CSV | Score | Outcome |
+|---|---|---|---|---|
+| ... | ... | (see §75 for prior submissions) | ... | ... |
+| 35 | 2026-04-30 | `dbscan_pseudo_baseline8_plus_ep10_1x_submission.csv` | **0.15465** | ❌ DBSCAN pseudo failed (-0.00419) |
+| 36 | 2026-04-30 | `camadv_hires_baseline8_plus_ep60_1x_submission.csv` | **0.14792** | ❌ Hi-res 384×192 failed (-0.01092) |
+| 37 | TBD | `cyclegan_baseline8_plus_ep60_1x_submission.csv` | TBD | ⏳ pending CycleGAN-aug training completion |
+
+**0.15884 still holds as best after Sessions 1-8.**
+
+## 84. Updated dead-list (Session 8 additions)
+
+Things to **NEVER retry** after Session 8:
+- DBSCAN cluster pseudo-labeling at LR=1e-4 (0.15465) — overfits to noisy pseudo-IDs at any LR; bottlenecked by source-ensemble accuracy
+- Any pseudo-labeling iteration on top of the current 0.15884 ensemble (3 fails in a row)
+- 384×192 hi-res ckpt added to 256×128 ensemble (0.14792) — cross-resolution manifold drift, same cliff as multi-scale TTA / UAM transfer
+- Multi-ckpt hi-res (ep50+60, ep40+50+60, all4): even worse per §66 monotonic-decay rule
+
+Things to **NEVER do** based on architecture analysis:
+- AT-ReID Uni-AT method (multi-scenario MoE) — wrong problem structure for us
+- CORE-ReID V2's ECAB/SECAB attention modules on ViT (CNN-specific design)
+- CORE-ReID V2's pseudo-labeling pipeline on top of our 0.15884 (we already exhausted this)
+
+Things **untried but in the queue** if CycleGAN fails:
+- ArcFace + camera embedding (untested, ~3 hr code)
+- ViT-Huge / EVA-02-L backbone (untested but DINOv2/EVA failed; low priority)
+- Pseudo-labeling on a higher-mAP source (don't have one)
+- Accept 0.15884 as final and write the paper (top-3 territory; defensible)
+
+## 85. Operational lessons (Session 8 specific)
+
+1. **The venv breaks intermittently.** Each session may need to refresh `pip` install path. Use `uv pip install --python <venv-python>` not `pip install`.
+2. **Process limit / fork errors recur on every multiprocess call.** Set `OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1` and `NUM_WORKERS: 0` everywhere. tmux kill-server between sessions to reduce hung processes.
+3. **GPU is shared during training.** Don't try to load another model for sample inspection while training holds the GPU — use CPU mode or wait.
+4. **Cross-resolution ensembling is structurally broken.** Same recipe, same architecture, just different input scale → features land on different manifolds. Don't try multi-scale TTA, hi-res ckpts mixed with base-res, etc. Sessions 4 and 8 both confirmed this (multi-scale TTA -0.0099, hi-res -0.011).
+5. **CycleGAN newer fork has API drift.** No `--gpu_ids`, no `--display_id`, `define_G()` no longer takes `gpu_ids`. Adapt scripts accordingly.
+6. **Sample inspection of GAN outputs needs to happen DURING or AFTER training, not before commit.** RGB-stat distance metric proved useful as a programmatic sanity check (§81.4).
+7. **5-hour training experiments need to be VRAM-tested in the first iteration**, not after. Hi-res at bs=32 used 22/24 GB — 90% of capacity, almost OOM.
+
+## 86. End-of-Session-8 honest take (written before CycleGAN result)
+
+We've done **3 big experiments today**:
+- DBSCAN pseudo: failed (-0.004)
+- Hi-res 384×192: failed (-0.011) — burned ~5 hr training
+- CycleGAN-aug: training now (~2.3 hr remaining), unknown outcome
+
+The session arc has been heavily skewed toward "speculative experiments fail" since we crossed 0.15884. The post-processing space is fully mapped (§44). Cross-recipe ensemble compatibility is now known to be sharper than originally thought (§55-§57, §72). Pseudo-labeling has failed 3 ways. Backbone swaps have failed 4 ways. Data augmentation as fine-tune failed; **CycleGAN-augmented from-scratch retrain is the LAST remaining structural lever that hasn't been explicitly tested.**
+
+If CycleGAN-aug works: 0.16+, possibly 0.17.
+If CycleGAN-aug fails: lock in 0.15884 and write the paper. The session-arc data is already complete enough for a strong write-up.
+
+Honest meta-observation: every prior session's final speculative idea has failed. The pattern is real. CycleGAN being NEW doesn't mean it'll work; it means we'll learn whether ANY data-augmentation approach can close the c004 gap. Either outcome is publishable.
+
+Reading order for any future Claude session: §0-§15 (Sessions 1-2), §16-§21 (Session 2 update), §22-§33 (Session 3), §34-§50 (Sessions 4-5 sweep), §51-§58 (Session 6), §59-§76 (Session 7 cam-adv win + extensive failures), then this Session 8 — §77-§86 — to understand what's been tried recently.
+

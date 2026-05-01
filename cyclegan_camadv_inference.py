@@ -1,8 +1,12 @@
-"""Pseudo-tuned model + 8-ckpt baseline ensemble inference.
+"""CycleGAN-augmented cam-adv ensemble inference.
 
-Run this AFTER training the pseudo-tuned model. Variants generated:
-  1. baseline-8 + pseudo-tuned (best ep)  ← high-EV
-  2. baseline-8 alone (sanity, should reproduce 0.15884)
+Extracts features from the 8-ckpt baseline (7 supervised + cam-adv s500 ep60)
+and the new cam-adv-cyclegan ep30/40/50/60 ckpts, then writes 6 weighted
+ensemble variants. Same proven post-processing: DBA k=8, rerank k1=15,
+k2=4, lambda=0.275, class-group filter.
+
+Following Session 7 finding (only converged ep60 cam-adv ckpts are
+ensemble-compatible at 1x), the primary submission candidate is ep60 only.
 """
 import csv
 import os
@@ -20,9 +24,7 @@ from utils.re_ranking import re_ranking
 CAMADV_EP60 = '/workspace/miuam_challenge_diff/models/model_vitlarge_camadv_seed500/part_attention_vit_60.pth'
 BASELINE_DIR_S1234 = '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep'
 BASELINE_DIR_S42   = '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42'
-PSEUDO_DIR = '/workspace/miuam_challenge_diff/models/model_vitlarge_pseudo_seed900'
-PSEUDO_CKPT_EP5 = f'{PSEUDO_DIR}/part_attention_vit_5.pth'
-PSEUDO_CKPT_EP10 = f'{PSEUDO_DIR}/part_attention_vit_10.pth'
+CYCLEGAN_DIR = '/workspace/miuam_challenge_diff/models/model_vitlarge_camadv_cyclegan_seed1100'
 
 BASELINE_8 = [
     f'{BASELINE_DIR_S1234}/part_attention_vit_30.pth',
@@ -34,6 +36,13 @@ BASELINE_8 = [
     f'{BASELINE_DIR_S42}/part_attention_vit_60.pth',
     CAMADV_EP60,
 ]
+CYCLEGAN_CKPTS = {
+    'ep30': f'{CYCLEGAN_DIR}/part_attention_vit_30.pth',
+    'ep40': f'{CYCLEGAN_DIR}/part_attention_vit_40.pth',
+    'ep50': f'{CYCLEGAN_DIR}/part_attention_vit_50.pth',
+    'ep60': f'{CYCLEGAN_DIR}/part_attention_vit_60.pth',
+}
+
 DBA_K, RR_K1, RR_K2, RR_LAMBDA = 8, 15, 4, 0.275
 OUT_DIR = '/workspace/miuam_challenge_diff/results'
 
@@ -65,7 +74,8 @@ def write_csv(qf_t, gf_t, label, num_query, val_loader):
     gf = db_augment(gf, DBA_K)
     q_g = np.dot(qf, gf.T); q_q = np.dot(qf, qf.T); g_g = np.dot(gf, gf.T)
     rrd = re_ranking(q_g, q_q, g_g, k1=RR_K1, k2=RR_K2, lambda_value=RR_LAMBDA)
-    CG = {'trafficsignal':'trafficsignal','crosswalk':'crosswalk','container':'bin_like','rubbishbins':'bin_like'}
+    CG = {'trafficsignal': 'trafficsignal', 'crosswalk': 'crosswalk',
+          'container': 'bin_like', 'rubbishbins': 'bin_like'}
     qcls = pd.read_csv(os.path.join(cfg.DATASETS.ROOT_DIR, 'query_classes.csv'))
     gcls = pd.read_csv(os.path.join(cfg.DATASETS.ROOT_DIR, 'test_classes.csv'))
     q2g = {n: CG[c.lower()] for n, c in zip(qcls['imageName'], qcls['Class'])}
@@ -82,17 +92,18 @@ def write_csv(qf_t, gf_t, label, num_query, val_loader):
         w = csv.writer(f); w.writerow(['imageName', 'Corresponding Indexes'])
         for n, t in zip(names, indices):
             w.writerow([n, ' '.join(map(str, t + 1))])
-    print(f"  → {out}")
+    print(f"  -> {out}")
 
 
 def main():
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     cfg.merge_from_file('/workspace/miuam_challenge_diff/config/UrbanElementsReID_test.yml')
+    cfg.DATALOADER.NUM_WORKERS = 0  # host fork limit
     cfg.freeze()
 
     val_loader, num_query = build_reid_test_loader(cfg, cfg.DATASETS.TEST[0])
 
-    print("\n  baseline-8 ckpt extraction:")
+    print("\n  baseline-8 ckpt extraction (proven 0.15884 set):")
     base_qf = base_gf = None
     for ckpt in BASELINE_8:
         print(f"    {os.path.basename(os.path.dirname(ckpt))}/{os.path.basename(ckpt)}")
@@ -104,24 +115,51 @@ def main():
         base_gf = gf if base_gf is None else base_gf + gf
         del model; torch.cuda.empty_cache()
 
-    pseudo_feats = {}
-    for tag, ckpt in [('ep5', PSEUDO_CKPT_EP5), ('ep10', PSEUDO_CKPT_EP10)]:
-        print(f"\n  pseudo-tuned {tag}: {ckpt}")
+    cyclegan_feats = {}
+    for tag, ckpt in CYCLEGAN_CKPTS.items():
         if not os.path.exists(ckpt):
-            raise SystemExit(f"  pseudo ckpt not found at {ckpt}")
+            print(f"  ! {tag}: missing {ckpt}, skipping")
+            continue
+        print(f"\n  cyclegan-cam-adv {tag}: {os.path.basename(ckpt)}")
         model = make_model(cfg, cfg.MODEL.NAME, 0, 0, 0)
         model.load_param(ckpt)
         model = model.cuda().eval()
         qf, gf = extract(model, val_loader, num_query)
-        pseudo_feats[tag] = (qf, gf)
+        cyclegan_feats[tag] = (qf, gf)
         del model; torch.cuda.empty_cache()
 
     os.makedirs(OUT_DIR, exist_ok=True)
-    # 8-baseline + 1× pseudo (ep5 / ep10 separately so user can pick the better one)
-    write_csv(base_qf + pseudo_feats['ep10'][0], base_gf + pseudo_feats['ep10'][1],
-              'pseudo2_baseline8_plus_ep10', num_query, val_loader)
-    write_csv(base_qf + pseudo_feats['ep5'][0], base_gf + pseudo_feats['ep5'][1],
-              'pseudo2_baseline8_plus_ep5', num_query, val_loader)
+    # NOTE: Training crashed at ep50 in-domain eval. Most-converged ckpt is ep40.
+    # Cyclegan-augmented training lacks the GRL escalation that made the §60.8
+    # compatibility-window finding apply only to ep60. Ep40 should be reasonable.
+    most_recent = max([k for k in cyclegan_feats.keys() if k.startswith('ep')],
+                      key=lambda x: int(x[2:])) if cyclegan_feats else None
+    print(f"\n  Most-converged ckpt available: {most_recent}")
+
+    # Primary: use the most-converged ckpt at 1x and 0.5x (mirrors cam-adv s500 ep60 pattern)
+    if most_recent is not None:
+        h_qf, h_gf = cyclegan_feats[most_recent]
+        write_csv(base_qf + h_qf, base_gf + h_gf,
+                  f'cyclegan_baseline8_plus_{most_recent}_1x', num_query, val_loader)
+        write_csv(base_qf + 0.5 * h_qf, base_gf + 0.5 * h_gf,
+                  f'cyclegan_baseline8_plus_{most_recent}_0p5x', num_query, val_loader)
+        write_csv(h_qf, h_gf,
+                  f'cyclegan_solo_{most_recent}', num_query, val_loader)
+
+    # Try ep30 add (less converged, lower distribution shift, may be ensemble-safer)
+    if 'ep30' in cyclegan_feats:
+        h_qf, h_gf = cyclegan_feats['ep30']
+        write_csv(base_qf + h_qf, base_gf + h_gf,
+                  'cyclegan_baseline8_plus_ep30_1x', num_query, val_loader)
+        write_csv(base_qf + 0.5 * h_qf, base_gf + 0.5 * h_gf,
+                  'cyclegan_baseline8_plus_ep30_0p5x', num_query, val_loader)
+
+    # Combined: most_recent + ep30 at 0.5x each
+    if most_recent != 'ep30' and 'ep30' in cyclegan_feats and most_recent is not None:
+        h_qf = cyclegan_feats['ep30'][0] + cyclegan_feats[most_recent][0]
+        h_gf = cyclegan_feats['ep30'][1] + cyclegan_feats[most_recent][1]
+        write_csv(base_qf + 0.5 * h_qf, base_gf + 0.5 * h_gf,
+                  f'cyclegan_baseline8_plus_ep30_{most_recent}_0p5x', num_query, val_loader)
 
 
 if __name__ == '__main__':

@@ -1,8 +1,15 @@
-"""Pseudo-tuned model + 8-ckpt baseline ensemble inference.
+"""UAM-pretrained Urban2026 fine-tune inference + ensemble.
 
-Run this AFTER training the pseudo-tuned model. Variants generated:
-  1. baseline-8 + pseudo-tuned (best ep)  ← high-EV
-  2. baseline-8 alone (sanity, should reproduce 0.15884)
+After the chained pipeline finishes (UAM 60ep pretrain → Urban2026 60ep fine-tune
+warm-started from UAM ep60), this generates ensemble variants.
+
+Tomorrow:
+  cd /workspace/miuam_challenge_diff && source .venv/bin/activate && python uam_inference.py
+
+Per the "1-2 high-EV variants" rule, generates:
+  PRIMARY (submit first): 8-baseline + after-UAM ep30 + after-UAM ep60 (10 ckpts)
+  BACKUP (only if primary wins): 8-baseline + after-UAM ep60 only (9 ckpts)
+  SANITY (don't submit unless investigating): after-UAM ep60 solo
 """
 import csv
 import os
@@ -17,13 +24,12 @@ from model import make_model
 from utils.re_ranking import re_ranking
 
 
-CAMADV_EP60 = '/workspace/miuam_challenge_diff/models/model_vitlarge_camadv_seed500/part_attention_vit_60.pth'
+CAMADV_S500_EP60 = '/workspace/miuam_challenge_diff/models/model_vitlarge_camadv_seed500/part_attention_vit_60.pth'
 BASELINE_DIR_S1234 = '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep'
-BASELINE_DIR_S42   = '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42'
-PSEUDO_DIR = '/workspace/miuam_challenge_diff/models/model_vitlarge_pseudo_seed900'
-PSEUDO_CKPT_EP5 = f'{PSEUDO_DIR}/part_attention_vit_5.pth'
-PSEUDO_CKPT_EP10 = f'{PSEUDO_DIR}/part_attention_vit_10.pth'
+BASELINE_DIR_S42 = '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42'
+AFTER_UAM_DIR = '/workspace/miuam_challenge_diff/models/model_vitlarge_after_uam_seed1100'
 
+# The proven 0.15884 8-ckpt ensemble (kept intact)
 BASELINE_8 = [
     f'{BASELINE_DIR_S1234}/part_attention_vit_30.pth',
     f'{BASELINE_DIR_S1234}/part_attention_vit_40.pth',
@@ -32,8 +38,11 @@ BASELINE_8 = [
     f'{BASELINE_DIR_S42}/part_attention_vit_40.pth',
     f'{BASELINE_DIR_S42}/part_attention_vit_50.pth',
     f'{BASELINE_DIR_S42}/part_attention_vit_60.pth',
-    CAMADV_EP60,
+    CAMADV_S500_EP60,
 ]
+AFTER_UAM_EP30 = f'{AFTER_UAM_DIR}/part_attention_vit_30.pth'
+AFTER_UAM_EP60 = f'{AFTER_UAM_DIR}/part_attention_vit_60.pth'
+
 DBA_K, RR_K1, RR_K2, RR_LAMBDA = 8, 15, 4, 0.275
 OUT_DIR = '/workspace/miuam_challenge_diff/results'
 
@@ -65,6 +74,7 @@ def write_csv(qf_t, gf_t, label, num_query, val_loader):
     gf = db_augment(gf, DBA_K)
     q_g = np.dot(qf, gf.T); q_q = np.dot(qf, qf.T); g_g = np.dot(gf, gf.T)
     rrd = re_ranking(q_g, q_q, g_g, k1=RR_K1, k2=RR_K2, lambda_value=RR_LAMBDA)
+
     CG = {'trafficsignal':'trafficsignal','crosswalk':'crosswalk','container':'bin_like','rubbishbins':'bin_like'}
     qcls = pd.read_csv(os.path.join(cfg.DATASETS.ROOT_DIR, 'query_classes.csv'))
     gcls = pd.read_csv(os.path.join(cfg.DATASETS.ROOT_DIR, 'test_classes.csv'))
@@ -75,6 +85,7 @@ def write_csv(qf_t, gf_t, label, num_query, val_loader):
     q_groups = np.array([q2g[os.path.basename(it[0])] for it in q_items])
     g_groups = np.array([g2g[os.path.basename(it[0])] for it in g_items])
     rrd[q_groups[:, None] != g_groups[None, :]] = np.inf
+
     indices = np.argsort(rrd, axis=1)[:, :100]
     out = f'{OUT_DIR}/{label}_submission.csv'
     names = [f'{i:06d}.jpg' for i in range(1, len(indices) + 1)]
@@ -89,10 +100,10 @@ def main():
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     cfg.merge_from_file('/workspace/miuam_challenge_diff/config/UrbanElementsReID_test.yml')
     cfg.freeze()
-
     val_loader, num_query = build_reid_test_loader(cfg, cfg.DATASETS.TEST[0])
+    print(f"  num_query: {num_query}, gallery: {len(val_loader.dataset.img_items) - num_query}")
 
-    print("\n  baseline-8 ckpt extraction:")
+    print("\n  Extracting 8-baseline ensemble:")
     base_qf = base_gf = None
     for ckpt in BASELINE_8:
         print(f"    {os.path.basename(os.path.dirname(ckpt))}/{os.path.basename(ckpt)}")
@@ -104,24 +115,39 @@ def main():
         base_gf = gf if base_gf is None else base_gf + gf
         del model; torch.cuda.empty_cache()
 
-    pseudo_feats = {}
-    for tag, ckpt in [('ep5', PSEUDO_CKPT_EP5), ('ep10', PSEUDO_CKPT_EP10)]:
-        print(f"\n  pseudo-tuned {tag}: {ckpt}")
+    print("\n  Extracting after-UAM ckpts:")
+    uam_feats = {}
+    for tag, ckpt in [('ep30', AFTER_UAM_EP30), ('ep60', AFTER_UAM_EP60)]:
         if not os.path.exists(ckpt):
-            raise SystemExit(f"  pseudo ckpt not found at {ckpt}")
+            print(f"  WARNING: {ckpt} not found — skipping {tag}")
+            continue
+        print(f"    after-UAM {tag}: {ckpt}")
         model = make_model(cfg, cfg.MODEL.NAME, 0, 0, 0)
         model.load_param(ckpt)
         model = model.cuda().eval()
         qf, gf = extract(model, val_loader, num_query)
-        pseudo_feats[tag] = (qf, gf)
+        uam_feats[tag] = (qf, gf)
         del model; torch.cuda.empty_cache()
 
+    if 'ep60' not in uam_feats:
+        raise SystemExit("after-UAM ep60 missing; cannot proceed")
+
     os.makedirs(OUT_DIR, exist_ok=True)
-    # 8-baseline + 1× pseudo (ep5 / ep10 separately so user can pick the better one)
-    write_csv(base_qf + pseudo_feats['ep10'][0], base_gf + pseudo_feats['ep10'][1],
-              'pseudo2_baseline8_plus_ep10', num_query, val_loader)
-    write_csv(base_qf + pseudo_feats['ep5'][0], base_gf + pseudo_feats['ep5'][1],
-              'pseudo2_baseline8_plus_ep5', num_query, val_loader)
+
+    # PRIMARY: 8-baseline + after-UAM ep30 + ep60 (if both available)
+    if 'ep30' in uam_feats:
+        qf = base_qf + uam_feats['ep30'][0] + uam_feats['ep60'][0]
+        gf = base_gf + uam_feats['ep30'][1] + uam_feats['ep60'][1]
+        write_csv(qf, gf, 'uam_baseline8_plus_ep30_ep60', num_query, val_loader)
+
+    # BACKUP: 8-baseline + after-UAM ep60 only
+    qf = base_qf + uam_feats['ep60'][0]
+    gf = base_gf + uam_feats['ep60'][1]
+    write_csv(qf, gf, 'uam_baseline8_plus_ep60', num_query, val_loader)
+
+    # SANITY: after-UAM ep60 solo
+    write_csv(uam_feats['ep60'][0], uam_feats['ep60'][1],
+              'uam_solo_ep60', num_query, val_loader)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,66 @@
+MODEL:
+  PRETRAIN_CHOICE: 'imagenet'
+  PRETRAIN_PATH: '/workspace/miuam_challenge_diff/pretrained'
+  IF_LABELSMOOTH: 'on'
+  IF_WITH_CENTER: 'no'
+  NAME: 'part_attention_vit'
+  NO_MARGIN: True
+  DEVICE_ID: ('0')
+  TRANSFORMER_TYPE: 'vit_large_patch16_224_TransReID'
+  STRIDE_SIZE: [16, 16]
+  # Warm-start from cam-adv s500 ep60 (the second-best ckpt; complements seed=42 ep60).
+  # Why cam-adv instead of seed=42: cam-adv already saw a camera-invariance signal,
+  # so the pseudo-label fine-tune can compound that. But fall back to seed=42 ep60
+  # if you want a "purer" baseline.
+  FINETUNE_FROM: '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_60.pth'
+
+INPUT:
+  SIZE_TRAIN: [256, 128]
+  SIZE_TEST: [256, 128]
+  REA:
+    ENABLED: False
+  PIXEL_MEAN: [0.5, 0.5, 0.5]
+  PIXEL_STD: [0.5, 0.5, 0.5]
+  LGT:
+    DO_LGT: True
+    PROB: 0.5
+
+DATASETS:
+  TRAIN: ('UrbanElementsReID',)
+  TEST: ('UrbanElementsReID_test',)
+  ROOT_DIR: '/workspace/Urban2026_pseudo/'
+
+DATALOADER:
+  SAMPLER: 'softmax_triplet'
+  NUM_INSTANCE: 4
+  NUM_WORKERS: 0
+
+SOLVER:
+  OPTIMIZER_NAME: 'Adam'
+  MAX_EPOCHS: 10
+  BASE_LR: 0.00010              # 3.3x higher than prior pseudo (3e-5) — earlier runs barely adapted
+  WARMUP_METHOD: 'linear'
+  WARMUP_EPOCHS: 2
+  WARMUP_FACTOR: 0.1
+  IMS_PER_BATCH: 64
+  LARGE_FC_LR: False
+  CHECKPOINT_PERIOD: 5          # save ep5 + ep10
+  LOG_PERIOD: 60
+  EVAL_PERIOD: 5
+  WEIGHT_DECAY: 1e-4
+  WEIGHT_DECAY_BIAS: 1e-4
+  BIAS_LR_FACTOR: 2
+  SEED: 950                     # new seed (prior pseudo was 900)
+  GRAD_CLIP: 1.0
+
+TEST:
+  EVAL: True
+  IMS_PER_BATCH: 64
+  RE_RANKING: False
+  WEIGHT: ''
+  NECK_FEAT: 'before'
+  FEAT_NORM: True
+
+LOG_ROOT: 'models/'
+TB_LOG_ROOT: './tb_log/'
+LOG_NAME: './model_vitlarge_dbscan_pseudo_seed950'

@@ -1,8 +1,13 @@
-"""Pseudo-tuned model + 8-ckpt baseline ensemble inference.
+"""DBSCAN-pseudo-tuned model + 8-ckpt baseline ensemble inference.
 
-Run this AFTER training the pseudo-tuned model. Variants generated:
-  1. baseline-8 + pseudo-tuned (best ep)  ← high-EV
-  2. baseline-8 alone (sanity, should reproduce 0.15884)
+Generates submission CSVs combining the proven 8-ckpt baseline (0.15884) with
+the DBSCAN-pseudo-tuned ckpts (ep5, ep10) at various weights.
+
+Variants:
+  1. baseline-8 + 1.0 * pseudo_ep10           (most direct test)
+  2. baseline-8 + 1.0 * pseudo_ep5            (less-adapted)
+  3. baseline-8 + 0.5 * pseudo_ep10           (lower weight, safer)
+  4. baseline-8 + (pseudo_ep5 + pseudo_ep10)  (mini trajectory ensemble of pseudo)
 """
 import csv
 import os
@@ -20,9 +25,9 @@ from utils.re_ranking import re_ranking
 CAMADV_EP60 = '/workspace/miuam_challenge_diff/models/model_vitlarge_camadv_seed500/part_attention_vit_60.pth'
 BASELINE_DIR_S1234 = '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep'
 BASELINE_DIR_S42   = '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42'
-PSEUDO_DIR = '/workspace/miuam_challenge_diff/models/model_vitlarge_pseudo_seed900'
-PSEUDO_CKPT_EP5 = f'{PSEUDO_DIR}/part_attention_vit_5.pth'
-PSEUDO_CKPT_EP10 = f'{PSEUDO_DIR}/part_attention_vit_10.pth'
+PSEUDO_DIR = '/workspace/miuam_challenge_diff/models/model_vitlarge_dbscan_pseudo_seed950'
+PSEUDO_EP5  = f'{PSEUDO_DIR}/part_attention_vit_5.pth'
+PSEUDO_EP10 = f'{PSEUDO_DIR}/part_attention_vit_10.pth'
 
 BASELINE_8 = [
     f'{BASELINE_DIR_S1234}/part_attention_vit_30.pth',
@@ -65,7 +70,8 @@ def write_csv(qf_t, gf_t, label, num_query, val_loader):
     gf = db_augment(gf, DBA_K)
     q_g = np.dot(qf, gf.T); q_q = np.dot(qf, qf.T); g_g = np.dot(gf, gf.T)
     rrd = re_ranking(q_g, q_q, g_g, k1=RR_K1, k2=RR_K2, lambda_value=RR_LAMBDA)
-    CG = {'trafficsignal':'trafficsignal','crosswalk':'crosswalk','container':'bin_like','rubbishbins':'bin_like'}
+    CG = {'trafficsignal': 'trafficsignal', 'crosswalk': 'crosswalk',
+          'container': 'bin_like', 'rubbishbins': 'bin_like'}
     qcls = pd.read_csv(os.path.join(cfg.DATASETS.ROOT_DIR, 'query_classes.csv'))
     gcls = pd.read_csv(os.path.join(cfg.DATASETS.ROOT_DIR, 'test_classes.csv'))
     q2g = {n: CG[c.lower()] for n, c in zip(qcls['imageName'], qcls['Class'])}
@@ -82,12 +88,13 @@ def write_csv(qf_t, gf_t, label, num_query, val_loader):
         w = csv.writer(f); w.writerow(['imageName', 'Corresponding Indexes'])
         for n, t in zip(names, indices):
             w.writerow([n, ' '.join(map(str, t + 1))])
-    print(f"  → {out}")
+    print(f"  -> {out}")
 
 
 def main():
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     cfg.merge_from_file('/workspace/miuam_challenge_diff/config/UrbanElementsReID_test.yml')
+    cfg.DATALOADER.NUM_WORKERS = 0
     cfg.freeze()
 
     val_loader, num_query = build_reid_test_loader(cfg, cfg.DATASETS.TEST[0])
@@ -105,10 +112,11 @@ def main():
         del model; torch.cuda.empty_cache()
 
     pseudo_feats = {}
-    for tag, ckpt in [('ep5', PSEUDO_CKPT_EP5), ('ep10', PSEUDO_CKPT_EP10)]:
-        print(f"\n  pseudo-tuned {tag}: {ckpt}")
+    for tag, ckpt in [('ep5', PSEUDO_EP5), ('ep10', PSEUDO_EP10)]:
         if not os.path.exists(ckpt):
-            raise SystemExit(f"  pseudo ckpt not found at {ckpt}")
+            print(f"  ! {ckpt} not found, skipping {tag}")
+            continue
+        print(f"\n  pseudo-tuned {tag}: {ckpt}")
         model = make_model(cfg, cfg.MODEL.NAME, 0, 0, 0)
         model.load_param(ckpt)
         model = model.cuda().eval()
@@ -117,11 +125,24 @@ def main():
         del model; torch.cuda.empty_cache()
 
     os.makedirs(OUT_DIR, exist_ok=True)
-    # 8-baseline + 1× pseudo (ep5 / ep10 separately so user can pick the better one)
-    write_csv(base_qf + pseudo_feats['ep10'][0], base_gf + pseudo_feats['ep10'][1],
-              'pseudo2_baseline8_plus_ep10', num_query, val_loader)
-    write_csv(base_qf + pseudo_feats['ep5'][0], base_gf + pseudo_feats['ep5'][1],
-              'pseudo2_baseline8_plus_ep5', num_query, val_loader)
+    if 'ep10' in pseudo_feats:
+        # 8-baseline + 1.0 * pseudo_ep10  (primary high-EV variant)
+        write_csv(base_qf + pseudo_feats['ep10'][0], base_gf + pseudo_feats['ep10'][1],
+                  'dbscan_pseudo_baseline8_plus_ep10_1x', num_query, val_loader)
+        # 8-baseline + 0.5 * pseudo_ep10  (safer if angular threshold concern)
+        write_csv(base_qf + 0.5 * pseudo_feats['ep10'][0], base_gf + 0.5 * pseudo_feats['ep10'][1],
+                  'dbscan_pseudo_baseline8_plus_ep10_0p5x', num_query, val_loader)
+    if 'ep5' in pseudo_feats:
+        write_csv(base_qf + pseudo_feats['ep5'][0], base_gf + pseudo_feats['ep5'][1],
+                  'dbscan_pseudo_baseline8_plus_ep5_1x', num_query, val_loader)
+    if 'ep5' in pseudo_feats and 'ep10' in pseudo_feats:
+        write_csv(base_qf + pseudo_feats['ep5'][0] + pseudo_feats['ep10'][0],
+                  base_gf + pseudo_feats['ep5'][1] + pseudo_feats['ep10'][1],
+                  'dbscan_pseudo_baseline8_plus_ep5_ep10', num_query, val_loader)
+    # Solo (diagnostic only — pseudo alone should be much worse than ensemble)
+    if 'ep10' in pseudo_feats:
+        write_csv(pseudo_feats['ep10'][0], pseudo_feats['ep10'][1],
+                  'dbscan_pseudo_solo_ep10', num_query, val_loader)
 
 
 if __name__ == '__main__':
