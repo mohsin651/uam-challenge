@@ -407,6 +407,66 @@ __factory_LAT_type = {
     'deit_tiny_patch16_224_TransReID': part_attention_deit_tiny,
 }
 
+class build_seresnet50(nn.Module):
+    """SE-ResNet-50 (BoT-style). Wraps timm seresnet50 with BNNeck.
+
+    Returns a 3-tuple matching PAT processor's expected shape so we can reuse
+    the existing training loop. layerwise_cls_tokens[-1] is the pre-bottleneck
+    feature used for triplet; layerwise_part_tokens are dummy for compatibility
+    (PC_LOSS must be disabled in the YAML for SE-ResNet-50 since it has no
+    explicit part tokens).
+    """
+    def __init__(self, num_classes, cfg):
+        super().__init__()
+        import timm
+        self.base = timm.create_model('seresnet50', pretrained=True,
+                                       num_classes=0, global_pool='avg')
+        self.in_planes = 2048
+        self.num_classes = num_classes
+        self.cfg = cfg
+        self.neck_feat = cfg.TEST.NECK_FEAT
+
+        self.bottleneck = nn.BatchNorm1d(self.in_planes)
+        self.bottleneck.bias.requires_grad_(False)
+        self.bottleneck.apply(weights_init_kaiming)
+        self.classifier = nn.Linear(self.in_planes, self.num_classes, bias=False)
+        self.classifier.apply(weights_init_classifier)
+        print('===========building SE-ResNet-50 (BoT-style) ===========')
+        print(f'  feature dim: {self.in_planes}, classes: {self.num_classes}')
+
+    def forward(self, x, label=None, cam_label=None):
+        feat_raw = self.base(x)              # (B, 2048) global-pooled feature
+        feat = self.bottleneck(feat_raw)     # BNNeck
+
+        if self.training:
+            cls_score = self.classifier(feat)
+            # Match PAT processor's 3-tuple shape; layerwise lists have only
+            # the final feature since ResNet has no per-block CLS analog.
+            layerwise_cls_tokens = [feat_raw]
+            # Dummy 3 part-tokens (= same feature repeated) — never used since
+            # PC_LOSS=False for this model.
+            layerwise_part_tokens = [[feat_raw, feat_raw, feat_raw]]
+            return cls_score, layerwise_cls_tokens, layerwise_part_tokens
+        else:
+            return feat if self.neck_feat == 'after' else feat_raw
+
+    def load_param(self, trained_path):
+        param_dict = torch.load(trained_path)
+        for i in param_dict:
+            if 'classifier' in i:
+                continue
+            k = i.replace('module.', '')
+            if k in self.state_dict():
+                self.state_dict()[k].copy_(param_dict[i])
+        print('Loading trained model from {}'.format(trained_path))
+
+    def compute_num_params(self):
+        total = sum([p.nelement() for p in self.parameters()])
+        logger = logging.getLogger('PAT.train')
+        if logger.handlers:
+            logger.info("Number of parameter: %.2fM" % (total/1e6))
+
+
 def make_model(cfg, modelname, num_class, sd_flag=False, head_flag=False, camera_num=None, view_num=None):
     if modelname == 'vit':
         model = build_vit(num_class, cfg, __factory_T_type)
@@ -414,6 +474,8 @@ def make_model(cfg, modelname, num_class, sd_flag=False, head_flag=False, camera
     elif modelname == 'part_attention_vit':
         model = build_part_attention_vit(num_class, cfg, __factory_LAT_type)
         print('===========building our part attention vit===========')
+    elif modelname == 'seresnet50':
+        model = build_seresnet50(num_class, cfg)
     else:
         model = Backbone(modelname, num_class, cfg)
         print('===========building ResNet===========')

@@ -70,8 +70,8 @@ def main():
 
     num_classes = len(train_loader.dataset.pids)
     model_name = cfg.MODEL.NAME
-    assert model_name == 'part_attention_vit', \
-        f"This clean baseline only supports part_attention_vit (got {model_name})"
+    assert model_name in ('part_attention_vit', 'seresnet50'), \
+        f"Supported models: part_attention_vit, seresnet50 (got {model_name})"
 
     model = make_model(cfg, modelname=model_name, num_class=num_classes,
                        camera_num=None, view_num=None)

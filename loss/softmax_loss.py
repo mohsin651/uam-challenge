@@ -27,15 +27,21 @@ class CrossEntropyLabelSmooth(nn.Module):
             inputs: prediction matrix (before softmax) with shape (batch_size, num_classes)
             targets: ground truth labels with shape (num_classes)
         """
-        all_posvid = torch.cat(all_posvid, dim=1)
-        soft_targets = []
-        for i in range(all_posvid.size(0)):
-            s_id, s_num = torch.unique(all_posvid[i,:], return_counts=True)
-            sum_num = s_num.sum()
-            temp = torch.zeros(inputs.size(1)).cuda().scatter_(0, s_id, (soft_lambda/sum_num)*s_num)
-            soft_targets.append(temp)
-            
-        soft_targets = torch.stack(soft_targets, dim=0)
+        # Soft-label path requires all_posvid (built from PC_LOSS clustering).
+        # If PC_LOSS is off (e.g., SE-ResNet-50 BoT run), all_posvid is None
+        # and we skip soft_targets construction entirely.
+        if all_posvid is None:
+            soft_label = False
+            soft_targets = None
+        else:
+            all_posvid = torch.cat(all_posvid, dim=1)
+            soft_targets = []
+            for i in range(all_posvid.size(0)):
+                s_id, s_num = torch.unique(all_posvid[i,:], return_counts=True)
+                sum_num = s_num.sum()
+                temp = torch.zeros(inputs.size(1)).cuda().scatter_(0, s_id, (soft_lambda/sum_num)*s_num)
+                soft_targets.append(temp)
+            soft_targets = torch.stack(soft_targets, dim=0)
 
         
         log_probs = self.logsoftmax(inputs)

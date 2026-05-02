@@ -122,9 +122,9 @@ def part_attention_vit_do_train_with_amp(cfg,
                     score, layerwise_global_feat, layerwise_feat_list = model_out
 
                 ############## patch learning ######################
-                patch_agent, position = patch_centers.get_soft_label(img_path, layerwise_feat_list[-1], vid=vid, camid=camid)
                 l_ploss = cfg.MODEL.PC_LR
                 if cfg.MODEL.PC_LOSS:
+                    patch_agent, position = patch_centers.get_soft_label(img_path, layerwise_feat_list[-1], vid=vid, camid=camid)
                     feat = torch.stack(layerwise_feat_list[-1], dim=0)
                     feat = feat[:,::1,:]
                     '''

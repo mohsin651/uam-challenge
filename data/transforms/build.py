@@ -96,6 +96,13 @@ def build_transforms(cfg, is_train=True, is_fake=False):
             res.append(LGT(lgt_prob))
         if do_cj:
             res.append(T.RandomApply([T.ColorJitter(cj_brightness, cj_contrast, cj_saturation, cj_hue)], p=cj_prob))
+        # Heavy aug ops added for paper-style data-centric training (May 2026).
+        if getattr(cfg.INPUT, 'PERSPECTIVE', None) is not None and cfg.INPUT.PERSPECTIVE.ENABLED:
+            res.append(T.RandomPerspective(distortion_scale=cfg.INPUT.PERSPECTIVE.DISTORTION,
+                                           p=cfg.INPUT.PERSPECTIVE.PROB))
+        if getattr(cfg.INPUT, 'ROTATION', None) is not None and cfg.INPUT.ROTATION.ENABLED:
+            res.append(T.RandomApply([T.RandomRotation(cfg.INPUT.ROTATION.DEGREES)],
+                                     p=cfg.INPUT.ROTATION.PROB))
         if do_augmix:
             res.append(AugMix())
         # if do_rea:

@@ -2280,3 +2280,258 @@ Honest meta-observation: every prior session's final speculative idea has failed
 
 Reading order for any future Claude session: §0-§15 (Sessions 1-2), §16-§21 (Session 2 update), §22-§33 (Session 3), §34-§50 (Sessions 4-5 sweep), §51-§58 (Session 6), §59-§76 (Session 7 cam-adv win + extensive failures), then this Session 8 — §77-§86 — to understand what's been tried recently.
 
+
+## 87. QMV from last year's winning paper — DEAD-END (2026-05-02)
+
+Paper: Diaz Benito & Sequeiro Gonzalez (UAM, ICIPW 2025) "Data-Centric and Model-Centric Enhancements for Urban Object Re-Identification" — last year's URBAN-REID 2024 winning solution at 31.65 mAP.
+
+### 87.1. The QMV idea
+Their Query Majority Voting: identify temporally-adjacent c004 query frames via ORB feature matching, group them, apply weighted-voting on rankings. They got +0.07 mAP. We adapted this as feature-level averaging using cosine similarity (no ORB needed since we already have 8-ckpt features).
+
+### 87.2. Diagnostic + result
+**Striking finding before submission**: 586/928 queries (63.1%) had a mutual NN partner same-class with similarity 0.81-0.99 (median 0.95). Looked very promising — high coverage, high similarity.
+
+**Submitted `qmv_mutual_top1_submission.csv`**: **0.14932** (-0.00952 vs 0.15884).
+
+### 87.3. Why it failed (paper-relevant insight)
+The 63% mutual-NN pairs at sim=0.95 are NOT same-object multi-frame views (the paper's case). They are **visually-similar-but-different identities** — same class of object (e.g., two different traffic signs with same hexagonal shape and similar coloring). Averaging their features produces a feature that doesn't belong to either identity, hurting retrieval.
+
+**Our c004 is structurally different from theirs**: their c004 had moving-camera multi-frame sequences (same physical object across consecutive frames). Our c004 appears to capture each object once (single frame per identity). Their QMV exploited a property we don't have.
+
+This is itself paper-worthy negative finding: **temporal-adjacency-based query expansion requires actual temporal redundancy in queries**. High visual similarity alone isn't sufficient — it can indicate similar-but-different identities, which adversely affect averaging.
+
+### 87.4. Other paper ideas evaluated
+| Paper technique | Status for us |
+|---|---|
+| Class-aware reranking | We already do this (class-group filter, §10) |
+| Real-ESRGAN super-resolution | Not viable — our 256×128 inputs already at trained resolution |
+| Style transfer for domain bridging | Tried via CycleGAN (§81); experiment didn't complete |
+| Heavy data augmentation at training | Would require full retrain |
+| SE-ResNet-50 backbone | Different framework (BoT), would require ~3-4 hr setup |
+| QMV (this section) | **DEAD** in our setup |
+
+### 87.5. End-of-session take
+**0.15884 is our practical ceiling at this point.** Across 8 sessions:
+- Every single tested experiment after 0.15884 has REGRESSED (10+ in a row)
+- The 0.15884 ensemble represents a sweet spot in feature distribution that any perturbation breaks
+- The remaining untried options (BoT+SE-ResNet50 retrain, full data-centric retrain with super-res+style transfer) are major efforts (~5-8 hr) with uncertain payoff
+
+The paper material is rich: 11 confirmed dead-ends in Session 8 alone, all with mechanistic explanations. Time to lock in 0.15884 and write.
+
+
+## 88. Heavy data augmentation retrain — DEAD-END (2026-05-02)
+
+### 88.1. Hypothesis from last year's paper
+Diaz Benito & Sequeiro Gonzalez (URBAN-REID 2024 winner, ICIPW 2025) reported +4.25 mAP from heavy data augmentation alone in their setup. Adapted their aug suite to our PAT+cam-adv recipe:
+- ColorJitter (brightness/contrast/saturation 0.3, hue 0.1, prob 0.5)
+- RandomErasing (prob 0.5)
+- LGT (prob 0.5)
+- RandomPerspective (distortion 0.2, prob 0.5) — NEW
+- RandomRotation (±10°, prob 0.5) — NEW
+
+### 88.2. Implementation
+- Modified `data/transforms/build.py` to add `RandomPerspective` and `RandomRotation` ops gated by `INPUT.PERSPECTIVE.ENABLED` and `INPUT.ROTATION.ENABLED` cfg flags.
+- Added `_C.INPUT.PERSPECTIVE` and `_C.INPUT.ROTATION` config blocks in `defaults.py`.
+- New training YAML `config/UrbanElementsReID_train_camadv_heavyaug.yml`: SEED=1200, all 5 augs enabled, otherwise identical to the proven cam-adv s500 recipe.
+- Single training run, 60 epochs, ~75 min wall time. NUM_WORKERS=8 (process limit fixed since §77).
+- Final ep60 Acc 0.966 (slightly below baseline cam-adv's 0.993, expected with heavy aug as regularizer).
+
+### 88.3. Two diagnostic submissions
+**`heavyaug_baseline8_plus_ep60_submission.csv`** (9-ckpt: 7-baseline + cam-adv s500 + heavyaug s1200): **0.14151** (-0.01733).
+- Reproduces the §72 angular-threshold cliff (2 cam-adv-style ckpts at 1× each push cam-adv contribution past ~35%).
+
+**`heavyaug_replace_baseline7_plus_ep60_submission.csv`** (8-ckpt: 7-baseline + heavyaug s1200, NO original cam-adv): **0.13907** (-0.01977).
+- Worse than the 7-baseline-only score (0.15421, §47). Confirms heavy-aug features are individually WORSE than both original cam-adv AND plain baseline ckpts when added at 1× weight.
+
+### 88.4. Verdict + paper-relevant insight
+Heavy data augmentation with RandomPerspective + RandomRotation MODIFIES what the model learns rather than just regularizing it. The aug-shifted features land on a different manifold from the proven 8-ckpt ensemble, breaking ensemble compatibility — same failure mode as backbone swaps (DINOv2/EVA/CLIP-ReID), recipe changes (Circle Loss, ArcFace), and resolution changes (384×192).
+
+**Refined rule for ReID ensemble engineering on Urban2026:**
+- Augmentation suite must match the trained ensemble's distribution
+- "Heavy aug" recipes that work in one paper's pipeline (CNN-based BoT) do NOT necessarily transfer to a different pipeline (ViT-Large PAT) even on similar dataset
+- The proven 0.15884 ensemble is in a tight feature-distribution sweet spot
+
+### 88.5. Updated dead-list
+- ColorJitter + RandomErasing + LGT + RandomPerspective + RandomRotation aug suite at the levels we used: DEAD (-0.020 regression as solo replacement)
+- Heavy aug + cam-adv added simultaneously to 7-baseline: DEAD (angular threshold)
+- Note: did NOT test "lighter heavy aug" (only ColorJitter + LGT, no perspective/rotation) — open question whether subset would work
+
+### 88.6. End-of-Session-9 honest take
+**0.15884 holds across 9 sessions.** All structural levers — backbone, loss, training data, augmentation, post-processing, TTA, pseudo-labeling, transfer learning, weight averaging, MLP refinement, feature centering, query expansion, multi-resolution — have been tested. Every retrain attempt since the 0.15884 win has regressed.
+
+The remaining untested bets are major commitments with low probability:
+- BoT + SE-ResNet-50 (different codebase, 4-5 hr setup + 2 hr train, ~25% probability)
+- True SSL on UAM (5+ hr dev + train, ~20-25% probability)
+- Lighter aug variant (+0.001-0.005 if it works, marginal)
+
+**The paper material is rich enough.** 16+ documented dead-ends, 1 novel positive contribution (cam-adv at exact angular weight), score progression 0.12072 → 0.15884 (+31.6% relative). Time to lock in or commit a multi-day attempt to BoT+SE-ResNet-50.
+
+
+## 89. Light-aug variant — DEAD-END (2026-05-02, late session)
+
+### 89.1. Hypothesis
+After heavy-aug failed (§88, RandomPerspective + RandomRotation suspected as manifold-shifters), tested whether SPATIAL ops were the killer or whether even mild aug perturbs feature distribution.
+
+Light-aug recipe:
+- Kept: ColorJitter (b/c/s 0.3, h 0.1, prob 0.5), RandomErasing (prob 0.5), LGT (prob 0.5)
+- DROPPED: RandomPerspective, RandomRotation
+- All other hyperparams identical to cam-adv s500 (the 0.15884 winner): SEED=1300, NO_FLIP=True, GRAD_CLIP=1.0, 60 epochs, BASE_LR=3.5e-4
+
+Files:
+- `config/UrbanElementsReID_train_camadv_lightaug.yml` (NEW)
+- `lightaug_inference.py` (NEW)
+- `models/model_vitlarge_camadv_lightaug_seed1300/` — ep30 + ep60 saved
+
+### 89.2. Training
+- Wall time: ~75 min (matched original cam-adv pace; CPU-light ops as predicted)
+- Final ep60: total_loss 2.65, Acc 0.97 (vs heavyaug 0.966 at same point — cleaner convergence)
+- GPU util 69% (vs heavyaug 9% during data loading) — confirmed perspective+rotation were the bottleneck
+
+### 89.3. Submission + result
+**Submitted `lightaug_replace_baseline7_plus_ep60_submission.csv`** (8-ckpt: 7-baseline + lightaug ep60, replacing original cam-adv s500 ep60): **0.14251** (-0.01633 vs 0.15884).
+
+This is the cleanest diagnostic possible — same recipe shape as the 0.15884 winner, only difference is which cam-adv ckpt is added. Result: -0.016, comparable magnitude to all prior data-augmentation failures.
+
+### 89.4. Final verdict on data augmentation
+**Even mild non-spatial aug (ColorJitter + RandomErasing + LGT) shifts the feature manifold enough to break ensemble compatibility.** This is paper-worthy:
+
+> ANY change to the augmentation suite beyond what the production ensemble was trained with produces features that ensemble badly with the proven 8-ckpt set. The c004 generalization gap CANNOT be closed by aug-time interventions on this architecture+dataset combination.
+
+This rules out the entire data-augmentation lever (the paper's biggest reported gain at +4.25 mAP), regardless of which subset of aug ops is used.
+
+Updated dead-list:
+- ColorJitter + RandomErasing + LGT (light-aug) at +0.5 prob each: DEAD (-0.016)
+- All heavy-aug variants from §88 also dead
+
+### 89.5. QMV experiment (also today, BEFORE heavy-aug) — DEAD
+Implemented per last year's paper (Diaz Benito et al. ICIPW 2025): for each query, find top-1 same-class mutual NN peer, average features, use as enhanced query.
+
+Diagnostic: 586/928 queries (63.1%) had a mutual NN with similarity 0.81-0.99 (median 0.95) — looked promising before submission.
+
+**Submitted `qmv_mutual_top1_submission.csv`**: **0.14932** (-0.00952).
+
+Why: high mutual-NN ratio at sim=0.95 turned out to be visually-similar-but-different identities (same class of trafficsign with similar shape), NOT same-object multi-frame views like the paper's case. Our c004 likely captures each object once (no temporal redundancy), unlike the paper's c004 which had moving-camera multi-frame sequences. Their QMV exploited a property our data doesn't have.
+
+Paper-relevant insight: temporal-adjacency-based query expansion REQUIRES actual temporal redundancy in queries. High visual similarity alone isn't sufficient.
+
+### 89.6. End-of-Session-9 summary
+
+Today's submissions (all regressions from 0.15884):
+| # | CSV | Score | Δ |
+|---|---|---|---|
+| 1 | `qmv_mutual_top1` | 0.14932 | -0.00952 |
+| 2 | `heavyaug_baseline8_plus_ep60` (stack) | 0.14151 | -0.01733 |
+| 3 | `heavyaug_replace_baseline7_plus_ep60` | 0.13907 | -0.01977 |
+| 4 | `lightaug_replace_baseline7_plus_ep60` | 0.14251 | -0.01633 |
+
+Combined with prior sessions, **17+ post-0.15884 submissions, all regressions.**
+
+The 0.15884 ensemble (7-baseline + cam-adv s500 ep60) sits in a feature-distribution sweet spot that is intolerant of:
+- Backbone changes (DINOv2/EVA/CLIP-ReID)
+- Loss changes (Circle/ArcFace)
+- Recipe changes (EMA, grad-clip variants)
+- Resolution changes (384×192)
+- TTA/post-proc beyond proven (multi-scale, 4-crop, centering, MLP refinement, QMV)
+- Pseudo-labeling (top-K, DBSCAN, 3 iterations)
+- Transfer learning (UAM)
+- Data augmentation (heavy, light, both spatial-only and pixel-only variants)
+
+Truly remaining untried (all major commitments, low probability):
+- BoT + SE-ResNet-50 retrain (different codebase, the paper's recipe) — ~6 hr, ~25%
+- True SSL on UAM (MAE/DINO style) — ~7 hr, ~20-25%
+- Lock in 0.15884 and write the paper
+
+Cleaning state at end of Session 9:
+- `models/model_vitlarge_camadv_heavyaug_seed1200/` — DEAD experiment, 2 ckpts (~2.4 GB)
+- `models/model_vitlarge_camadv_lightaug_seed1300/` — DEAD experiment, 3 ckpts (~3.6 GB)
+- Both safe to delete after paper-figure data is extracted
+
+**Next session reading order**: §0-§15 (Sessions 1-2), §16-§21 (Session 2 update), §22-§33 (Session 3), §34-§50 (Sessions 4-5), §51-§58 (Session 6), §59-§76 (Session 7), §77-§86 (Session 8), §87-§89 (this Session 9). Then commit to either a multi-day BoT+SE-ResNet-50 attempt or paper writing.
+
+
+## 90. Per-class rerank — DEAD-END (2026-05-02, last submission of day)
+
+### 90.1. Hypothesis
+Standard pipeline applies global rerank (k1=15, k2=4, λ=0.275) then masks cross-class to inf. The k-reciprocal computation in re-ranking uses ALL galleries as neighborhood context. Hypothesized this was "polluting" rerank with cross-class galleries that aren't valid candidates. Per-class rerank: split queries+galleries by class group, run rerank on each sub-problem independently with strictly within-class context.
+
+### 90.2. Implementation + result
+`per_class_rerank_inference.py` — splits 928 queries into 3 class groups (trafficsignal 582, bin_like 255, crosswalk 91), runs `re_ranking()` on each subblock with proven (15, 4, 0.275). Cached features used (training-free).
+
+**Submitted `perclass_rerank_uniform_k15_lam0275_submission.csv`**: **0.15714** (-0.00170 vs 0.15884).
+
+### 90.3. Insight (paper-relevant)
+Cross-class galleries in the rerank's k-reciprocal context were actually MILDLY HELPFUL, not polluting. Possible reason: they provide a richer "negative space" — galleries that are clearly not the same identity inform the k-reciprocal feature with more diverse comparisons, helping calibrate within-class similarities. Restricting to within-class loses this.
+
+This is the OPPOSITE of what we hypothesized. The standard global-rerank-then-class-mask order is empirically correct.
+
+### 90.4. End-of-Session-9 final tally
+
+Today's submissions (all regressions from 0.15884):
+| # | CSV | Score | Δ |
+|---|---|---|---|
+| 1 | qmv_mutual_top1 | 0.14932 | -0.00952 |
+| 2 | heavyaug_baseline8_plus_ep60 (stack) | 0.14151 | -0.01733 |
+| 3 | heavyaug_replace_baseline7_plus_ep60 | 0.13907 | -0.01977 |
+| 4 | lightaug_replace_baseline7_plus_ep60 | 0.14251 | -0.01633 |
+| 5 | perclass_rerank_uniform | 0.15714 | -0.00170 |
+
+**18+ post-0.15884 regressions across all sessions, zero wins.** 0.15884 is locked as the practical ceiling for this PAT+cam-adv pipeline.
+
+### 90.5. Truly remaining untested paths
+- **BoT + SE-ResNet-50 retrain** (~6 hr): Different framework, paper's exact recipe. ~25% probability. Requires fresh codebase setup (timm has SE-ResNet-50: 26M params, 2048-d output — different feature dim from our 1024-d ViT-L, ensemble compatibility risk).
+- **MAE-style true SSL on UAM** (~7 hr): SSL doesn't tie features to UAM identities, so theoretically less catastrophic-forgetting-resistance than supervised UAM transfer (§75). ~20-25%.
+- **Lock in 0.15884, write paper**: 18+ documented dead-ends with mechanistic analyses, novel cam-adv +0.00463 finding, angular-weight threshold theory, full per-axis post-processing curves. Genuinely paper-rich material.
+
+
+## 91. Cam-adv with stronger λ=0.3 — DEAD-END (2026-05-02, late session 9)
+
+### 91.1. Hypothesis (per Path 2 reactivation)
+The original cam-adv s500 used λ=0.1 (conservative). Hypothesized that stronger GRL pressure (λ=0.3 with grad_clip=2.0) might:
+- Produce more camera-invariant features that ensemble even better than λ=0.1 at 1× weight, OR
+- Make earlier epochs (ep40/ep50) ensemble-compatible (since they'd converge faster to invariant manifold)
+
+Original Ganin & Lempitsky paper used a λ schedule ramping to 1.0; we tried fixed λ=0.3 as middle ground.
+
+### 91.2. Training
+- New YAML: `config/UrbanElementsReID_train_camadv_lambda03.yml` (λ=0.3, GRAD_CLIP=2.0, SEED=1400, CHECKPOINT_PERIOD=10 for per-epoch granularity)
+- ~75 min wall time, ~133 samples/sec (matched original cam-adv pace)
+- Final ep60 Acc 0.987, total_loss 2.4 — clean convergence, no NaN
+- 6 ckpts saved (ep10/20/30/40/50/60)
+
+### 91.3. Submissions + results
+**Submitted `lambda03_baseline7_plus_ep60_submission.csv`** (8-ckpt: 7-baseline + λ=0.3 ep60 at 1× weight): **0.15462** (-0.00422 vs 0.15884).
+
+**Submitted `lambda03_baseline7_plus_ep60_half_submission.csv`** (8-ckpt: 7-baseline + λ=0.3 ep60 at 0.5× weight, ~16% angular contribution): **0.15221** (-0.00663 vs 0.15884).
+
+### 91.4. Verdict (paper-relevant)
+
+| Variant | Score | Δ |
+|---|---|---|
+| 7-baseline + λ=0.1 ep60 at 1× (winner) | 0.15884 | 0 |
+| 7-baseline + λ=0.3 ep60 at 1× | 0.15462 | -0.0042 |
+| 7-baseline + λ=0.3 ep60 at 0.5× | 0.15221 | -0.0066 |
+
+**Critical insight: λ=0.3 features are WORSE at LOWER weighting.** At 1× they're sub-optimal, at 0.5× they're even worse. There's no sweet spot — the features simply don't add value at any mixing ratio.
+
+This DEFINITIVELY rules out the "stronger GRL is better" hypothesis. The λ=0.1 setting in the original cam-adv s500 was empirically optimal (or close to it) — stronger pressure shifts feature manifold too far from baseline distribution, weaker pressure (λ→0) presumably just doesn't add the camera-invariance signal at all.
+
+**Refined paper-worthy claim about GRL hyperparameters:**
+> The GRL coefficient λ has a NARROW useful range for inference-time ensemble compatibility. Too low (λ→0): no camera-invariance signal added. Too high (λ≥0.3): features shift past the angular-weight threshold for safe ensembling. The "useful λ" range appears to be tightly centered on values where cam_loss roughly matches main reid_loss in magnitude during the late-training phase — λ=0.1 in our setup gave cam_loss/reid_loss ≈ 0.03 at ep60 (very small auxiliary signal), which was just enough to nudge features toward camera-invariance without disrupting the main feature manifold.
+
+### 91.5. End-of-Session-9 final tally
+
+Today's submissions (all regressions from 0.15884):
+| # | CSV | Score | Δ |
+|---|---|---|---|
+| 1 | qmv_mutual_top1 | 0.14932 | -0.00952 |
+| 2 | heavyaug_baseline8_plus_ep60 (stack) | 0.14151 | -0.01733 |
+| 3 | heavyaug_replace_baseline7_plus_ep60 | 0.13907 | -0.01977 |
+| 4 | lightaug_replace_baseline7_plus_ep60 | 0.14251 | -0.01633 |
+| 5 | perclass_rerank_uniform | 0.15714 | -0.00170 |
+| 6 | hparam_ensemble_rerank | 0.15581 | -0.00303 |
+| 7 | cluster_dba_n700_alpha05 | 0.15327 | -0.00557 |
+| 8 | lambda03_baseline7_plus_ep60 | 0.15462 | -0.00422 |
+| 9 | lambda03_baseline7_plus_ep60_half | 0.15221 | -0.00663 |
+
+**21+ post-0.15884 regressions across all sessions, zero wins. 0.15884 is unambiguously the practical ceiling for this PAT+cam-adv pipeline.**
+

@@ -149,6 +149,20 @@ _C.INPUT.RPT = CN()
 _C.INPUT.RPT.ENABLED = False
 _C.INPUT.RPT.PROB = 0.5
 
+# RandomPerspective (camera angle simulation) — heavy-aug retrains.
+# Inspired by Diaz Benito et al. (2025) URBAN-REID winner: got +4.25 mAP from
+# heavy data augmentation. Wired through build_transforms when ENABLED.
+_C.INPUT.PERSPECTIVE = CN()
+_C.INPUT.PERSPECTIVE.ENABLED = False
+_C.INPUT.PERSPECTIVE.PROB = 0.5
+_C.INPUT.PERSPECTIVE.DISTORTION = 0.2
+
+# RandomRotation (small misalignment simulation) — same paper.
+_C.INPUT.ROTATION = CN()
+_C.INPUT.ROTATION.ENABLED = False
+_C.INPUT.ROTATION.PROB = 0.5
+_C.INPUT.ROTATION.DEGREES = 10
+
 # -----------------------------------------------------------------------------
 # Dataset
 # -----------------------------------------------------------------------------
