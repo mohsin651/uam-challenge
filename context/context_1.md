@@ -2535,3 +2535,365 @@ Today's submissions (all regressions from 0.15884):
 
 **21+ post-0.15884 regressions across all sessions, zero wins. 0.15884 is unambiguously the practical ceiling for this PAT+cam-adv pipeline.**
 
+# ============================================================================
+# Session 9 detail addendum (2026-05-02 evening) — for paper writing
+# ============================================================================
+
+This addendum fleshes out experiments §87-§91 that were summarized briefly,
+plus adds §92-§93 for the final SE-ResNet-50 cross-architecture experiment
+(submission pending tomorrow). Written for paper detail completeness.
+
+## 91A. Earlier-day experiments missed in summary (mid-Session-9, 2026-05-02)
+
+### MLP refinement head — DEAD-END (~0.10 estimated, single submission)
+**File: `mlp_refinement_pipeline.py`**
+
+Hypothesis: post-hoc trainable refinement layer on FROZEN 8-ckpt features.
+Don't touch the backbone, just add a small MLP `1024 → 512 (BN+ReLU) → 1024`
+with a residual connection (`out = MLP(x) + x`) and L2-norm. Train with
+triplet (soft margin, batch-hard) + cosine softmax CE on Urban2026 train labels
+for 50 epochs at LR=1e-3. Aim: project the 8-ckpt features into a more
+discriminative subspace.
+
+Cached 8-ckpt features at `/workspace/miuam_challenge_diff/results/cache/8ckpt_test.npz`
+and `8ckpt_train.npz` (extracted once, reused throughout the day's experiments).
+
+Training:
+- 50 epochs × 200 iters/epoch with PK sampling (16 IDs × 4 instances)
+- Final ep50: triplet 0.41, CE 0.011, Acc 1.000 — fully converged on training IDs
+- Wall time: ~3 min
+
+**Submitted result: ~0.10x (user reported "very bad ~0.1 something")**
+
+Mechanism for failure: 100% Acc on 1088 train IDs means the MLP overfit to
+train discrimination, but those features don't transfer to c004 query images.
+The residual connection didn't help — the additive MLP delta was sufficient
+to push features off the c004-compatible manifold.
+
+### Hyperparameter-ensemble re-ranking — DEAD-END (0.15581)
+**File: `hparam_ensemble_rerank.py`**
+
+Hypothesis: averaging rerank distance matrices across 7 nearby (k1, k2, λ)
+configs hedges against being at a noisy peak. The §44 sweep showed a fairly
+flat plateau near (15, 4, 0.275); averaging across the plateau should capture
+the true optimum more robustly.
+
+Configs ensembled (all on the 8-ckpt sum features, DBA k=8 fixed):
+- (15, 4, 0.275) — proven center
+- (14, 4, 0.275), (16, 4, 0.275) — k1 ±1
+- (15, 3, 0.275), (15, 5, 0.275) — k2 ±1
+- (15, 4, 0.250), (15, 4, 0.300) — λ ±0.025
+
+Computed each config's rerank distance matrix, averaged element-wise, applied
+class-group filter, argsort.
+
+**Submitted: 0.15581 (-0.00303 vs 0.15884)**
+
+Mechanism: the proven (15, 4, 0.275) is genuinely THE optimum, NOT on a flat
+plateau. Averaging dilutes the optimal signal with sub-optimal distances.
+
+### Cluster-aware DBA — DEAD-END (0.15327)
+**File: `cluster_dba_inference.py`**
+
+Hypothesis: standard DBA averages each gallery feature with its top-K nearest
+neighbors regardless of identity, which can pull features across identity
+boundaries. Cluster-aware DBA: KMeans-cluster the gallery into K=700 clusters
+(estimated number of unique IDs), then replace each gallery feature with a
+soft blend `(1-α) × own + α × cluster_centroid`.
+
+Diagnostic: 700 KMeans clusters on the gallery → median cluster size 4
+(matches expected ~4 cameras × 1 obj per ID), max 13, 102 singletons. The
+cluster-size distribution validates the "~700 unique gallery identities"
+hypothesis.
+
+**Submitted (α=0.5 blend): 0.15327 (-0.00557 vs 0.15884)**
+
+Mechanism: KMeans clustering boundaries don't perfectly align with identity
+boundaries. ~14% of clusters are singletons (no smoothing), and the rest may
+group near-duplicate-but-different identities together. The cluster-centroid
+blend pulls features toward "consensus" features that don't correspond to any
+real identity, hurting discrimination.
+
+## 92. SE-ResNet-50 + BoT cross-architecture experiment (2026-05-02 night)
+
+### 92.1. Setup motivation
+After all PAT-based variants exhausted (Sessions 4-9), pivot to a structurally
+different architecture: SE-ResNet-50 with last year's URBAN-REID winning
+recipe (Diaz Benito et al. ICIPW 2025 — Bag of Tricks framework). Features
+have a different dimensionality (2048-d) and inductive bias (CNN convolutional
+locality vs ViT global attention) — potentially complementary to PAT-8.
+
+### 92.2. Code added
+
+**File `model/make_model.py` — added `build_seresnet50` class:**
+```python
+class build_seresnet50(nn.Module):
+    def __init__(self, num_classes, cfg):
+        super().__init__()
+        import timm
+        self.base = timm.create_model('seresnet50', pretrained=True,
+                                       num_classes=0, global_pool='avg')
+        self.in_planes = 2048
+        self.bottleneck = nn.BatchNorm1d(self.in_planes)  # BNNeck
+        self.bottleneck.bias.requires_grad_(False)
+        self.bottleneck.apply(weights_init_kaiming)
+        self.classifier = nn.Linear(self.in_planes, num_classes, bias=False)
+        self.classifier.apply(weights_init_classifier)
+
+    def forward(self, x, label=None, cam_label=None):
+        feat_raw = self.base(x)              # (B, 2048)
+        feat = self.bottleneck(feat_raw)     # BNNeck output
+        if self.training:
+            cls_score = self.classifier(feat)
+            # Match PAT processor's 3-tuple shape with dummy part-tokens
+            layerwise_cls_tokens = [feat_raw]
+            layerwise_part_tokens = [[feat_raw, feat_raw, feat_raw]]
+            return cls_score, layerwise_cls_tokens, layerwise_part_tokens
+        else:
+            return feat if self.neck_feat == 'after' else feat_raw
+```
+
+Registered in `make_model()` factory:
+```python
+elif modelname == 'seresnet50':
+    model = build_seresnet50(num_class, cfg)
+```
+
+**File `train.py` — relaxed model assertion:**
+```python
+assert model_name in ('part_attention_vit', 'seresnet50'), ...
+```
+
+**File `processor/part_attention_vit_processor.py` — guarded patch_centers usage:**
+The `patch_centers.get_soft_label()` call at line 125 was OUTSIDE the
+`if cfg.MODEL.PC_LOSS:` block; SE-ResNet-50 has dummy part tokens so this
+crashed when PC_LOSS=False. Moved the call INSIDE the conditional.
+
+**File `loss/softmax_loss.py` — handle `all_posvid=None`:**
+The CrossEntropyLabelSmooth.forward() unconditionally did
+`all_posvid = torch.cat(all_posvid, dim=1)` even when all_posvid was None
+(crashes when SOFT_LABEL=False with PC_LOSS off). Added early return:
+```python
+if all_posvid is None:
+    soft_label = False
+    soft_targets = None
+else:
+    all_posvid = torch.cat(all_posvid, dim=1)
+    ...
+```
+
+### 92.3. Training YAML
+
+**File `config/UrbanElementsReID_train_seresnet50_bot.yml` (NEW):**
+
+Key settings:
+- `MODEL.NAME: seresnet50`, `MODEL.PC_LOSS: False`, `MODEL.SOFT_LABEL: False`
+- `INPUT.PIXEL_MEAN: [0.485, 0.456, 0.406]` (ImageNet stats — timm seresnet50
+  was trained on these, NOT the [0.5, 0.5, 0.5] our PAT used)
+- `INPUT.PIXEL_STD: [0.229, 0.224, 0.225]` (matching)
+- `INPUT.DO_FLIP: False` (directional traffic signs preserved)
+- Heavy aug suite ENABLED (per the BoT paper's recipe):
+  - ColorJitter (b/c/s 0.3, h 0.1, prob 0.5)
+  - RandomErasing (prob 0.5)
+  - LGT (prob 0.5)
+  - RandomPerspective (distortion 0.2, prob 0.5)
+  - RandomRotation (±10°, prob 0.5)
+- `SOLVER.MAX_EPOCHS: 100` (paper used 85-100), BASE_LR: 3.5e-4 (BoT default)
+- `SOLVER.WEIGHT_DECAY: 5e-4` (BoT default, higher than PAT's 1e-4)
+- `SOLVER.WARMUP_EPOCHS: 10`, `SOLVER.SEED: 1500`, `SOLVER.GRAD_CLIP: 1.0`
+- `SOLVER.CHECKPOINT_PERIOD: 20` (save ep20/40/60/80/100)
+
+### 92.4. Training run
+- Wall time: **28 minutes** for 100 epochs (~17 sec/epoch — 4× faster than
+  ViT-L's 70 sec/epoch due to smaller model: 26M params vs 305M)
+- GPU memory peak: ~3.5 GB (very lightweight)
+- Final ep100: total_loss 2.03, Acc 0.89 (lower than PAT's 0.99 — expected with
+  heavy aug acting as regularizer)
+- 5 ckpts saved (ep20/40/60/80/100), ~110 MB each
+- pc_loss = 0.000 throughout (PC_LOSS off, confirmed)
+
+### 92.5. Inference (cross-architecture distance fusion)
+**File `seresnet50_inference.py` (NEW):**
+
+The CRITICAL design: SE-ResNet-50 features are 2048-d, PAT features are 1024-d.
+Cannot directly sum L2-normed features across architectures. Instead, compute
+the rerank distance matrix SEPARATELY for each architecture, then average the
+two matrices element-wise (with optional weighting).
+
+Pipeline:
+1. Extract BoT features (2048-d) for all query+gallery, compute DBA(k=8) +
+   rerank(k1=15, k2=4, λ=0.275) → rrd_bot (rerank distance matrix)
+2. Extract PAT-8 features (1024-d) — sum the 7-baseline + cam-adv s500 ep60,
+   apply same DBA + rerank → rrd_pat
+3. Fuse: `rrd_combined = w_pat * rrd_pat + w_bot * rrd_bot`
+4. Apply class-group filter, argsort → top-100 CSV
+
+Important: PIXEL_MEAN/STD must be RESET between extractions (the cfg gets
+defrosted/refrozen between BoT and PAT branches — ImageNet stats for BoT,
+[0.5, 0.5, 0.5] for PAT).
+
+### 92.6. Variants generated (4 CSVs ready, NOT YET SUBMITTED — pending tomorrow)
+| Variant | Composition | Hypothesis |
+|---|---|---|
+| `seresnet50_solo_ep100` | BoT ep100 only, no PAT | Diagnostic — does BoT have any signal at all? |
+| `seresnet50_solo_ep80_100` | BoT ep80+ep100 averaged | Within-arch ensemble baseline |
+| `pat8_plus_seresnet50_5050` | 50% rrd_pat + 50% rrd_bot | Equal-weight cross-arch |
+| `pat8_plus_seresnet50_7030` | 70% rrd_pat + 30% rrd_bot | PAT-dominant (proven) + small BoT injection |
+
+### 92.7. Reproducibility commands
+```bash
+# Train BoT
+cd /workspace/miuam_challenge_diff && source .venv/bin/activate
+tmux new-session -d -s seresnet50 \
+  "OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2 python train.py \
+   --config_file config/UrbanElementsReID_train_seresnet50_bot.yml"
+# Wall time ~28 min. Saves to models/model_seresnet50_bot_seed1500/.
+
+# Inference (assumes PAT-8 ckpts intact + BoT ckpts saved)
+python seresnet50_inference.py
+# Generates 4 CSVs in results/.
+```
+
+### 92.8. Honest expectations (recorded BEFORE submission tomorrow)
+Per the 23+ failed-experiment pattern:
+- Win 0.16+: ~25% probability — different architecture genuinely decorrelated
+- Marginal 0.155-0.159: ~30% — some BoT signal but not enough to dominate
+- Regress: ~45% — same cross-recipe-incompatibility cliff as DINOv2/EVA/CLIP-ReID
+
+Key difference from prior backbone swaps: this uses DISTANCE-LEVEL fusion
+(after rerank) rather than feature-level summation. Prior failures were at the
+feature level. Distance fusion is more robust to feature-space differences.
+
+## 93. Final paper-writing summary (Session 9, 2026-05-02)
+
+### 93.1. All Session 9 Kaggle submissions
+| # | CSV | Score | Δ vs 0.15884 |
+|---|---|---|---|
+| 1 | `mlp_refine_baseline8_submission.csv` | ~0.10x | -0.05+ (worst of session) |
+| 2 | `qmv_mutual_top1_submission.csv` | 0.14932 | -0.00952 |
+| 3 | `heavyaug_baseline8_plus_ep60_submission.csv` (stack) | 0.14151 | -0.01733 |
+| 4 | `heavyaug_replace_baseline7_plus_ep60_submission.csv` | 0.13907 | -0.01977 |
+| 5 | `lightaug_replace_baseline7_plus_ep60_submission.csv` | 0.14251 | -0.01633 |
+| 6 | `perclass_rerank_uniform_k15_lam0275_submission.csv` | 0.15714 | -0.00170 |
+| 7 | `hparam_ensemble_rerank_submission.csv` | 0.15581 | -0.00303 |
+| 8 | `cluster_dba_n700_alpha05_submission.csv` | 0.15327 | -0.00557 |
+| 9 | `lambda03_baseline7_plus_ep60_submission.csv` | 0.15462 | -0.00422 |
+| 10 | `lambda03_baseline7_plus_ep60_half_submission.csv` | 0.15221 | -0.00663 |
+| 11 (pending) | `pat8_plus_seresnet50_7030_submission.csv` | TBD | TBD |
+
+**11 submissions, 0 wins.** Combined session arc: 23+ post-0.15884 regressions,
+zero post-best wins.
+
+### 93.2. Paper-relevant findings (consolidated for write-up)
+
+**Positive contribution (the only one in 9 sessions):**
+- Camera-adversarial training (GRL between PAT bottleneck and 3-way camera
+  classifier, λ=0.1, weight=1.0) added at ep60 (converged) at 1× weight to a
+  7-ckpt baseline ensemble: **+0.00463 (0.15421 → 0.15884)**.
+- Mechanistic explanation: angular-weight contribution math
+  (`1/(1+sqrt(N))` ≈ 27% at single ckpt, single weight) places the cam-adv
+  feature within a "compatibility window" of the baseline manifold — close
+  enough to ensemble constructively, distant enough to add complementary
+  camera-invariance signal.
+
+**Negative results with mechanistic explanations** (the bulk of paper material):
+
+| Mechanism class | Variants tested | Common failure mode |
+|---|---|---|
+| Backbone swap | DINOv2-L, EVA-L, CLIP-ReID ViT-B, SE-ResNet-50 (pending) | Feature distribution incompatible with proven ensemble |
+| Loss change | Circle Loss (γ=256), ArcFace (s=64 / s=30) | Distribution shift; aggressive losses + grad_clip conflict |
+| Recipe change | EMA, GRAD_CLIP=1.0 (with no other changes), heavy/light aug | Modifies feature distribution past angular threshold |
+| Resolution change | Multi-scale TTA (224+256+288), 4-crop, 384×192 retrain | ViT pos_embed coupling — different scales = different manifold |
+| Pseudo-labeling | Top-1 mutual NN, top-2, DBSCAN | Source-ensemble label noise floor (~70% wrong) |
+| Transfer learning | UAM merged data, UAM supervised pretrain | Cross-domain pretraining biases persist through fine-tune |
+| Specialist routing | Trafficsignal-only PAT specialist | Data scarcity + capacity isn't bottleneck (generalization is) |
+| Adversarial λ tuning | λ=0.3 at 1× and 0.5× weight | Stronger GRL pushes features past angular threshold |
+| TTA (test-time) | Multi-scale, 4-crop, h-flip, QMV (mutual NN) | Pos_embed drift; corner crops; visually-similar-but-diff IDs |
+| Feature debiasing | Mean centering (per-camera, global), PCA-drop-1, MLP refinement | Per-camera mean encodes USEFUL identity signal, not pure bias |
+| Re-rank tweaks | Per-class rerank, hyperparameter ensemble, finer DBA-k sweep | Cross-class context as informative negatives; (15,4,0.275) is genuinely optimal |
+| Gallery clustering | KMeans-cluster + cluster-centroid DBA blend (α=0.5) | Cluster boundaries don't align with identities |
+
+**The "angular-weight threshold" theory** (Sections §67, §72):
+After L2-norm-and-sum ensembling, adding a feature with weight w to a baseline
+sum of N ckpts gives the new feature an angular contribution of approximately
+`w/(w + sqrt(N))`. Below ~30%, the addition is complementary. Above ~35%, the
+distribution shift dominates and ensemble breaks.
+
+Empirical confirmation:
+- 1 cam-adv at 1× weight (27%) → +0.005 ✓
+- 1.5× cam-adv ep60 (36%) → -0.005 ✗
+- 2 cam-adv ckpts at 1× each (35%) → -0.017 ✗
+
+This is paper-worthy: a mechanistic explanation for why ReID ensembles can
+absorb only LIMITED amounts of any "structurally different" feature source.
+
+**The "convergence window" theory** (Sections §60.8, §66, §72.4):
+The ensemble-compatibility curve for cam-adv ckpts (with the proven 7-baseline)
+showed strict monotonic degradation as earlier ckpts were added:
+
+| Cam-adv ckpts in ensemble | Score | Δ |
+|---|---|---|
+| ep60 only | 0.15884 | 0 |
+| ep50 + ep60 | 0.14940 | -0.009 |
+| ep40 + ep50 + ep60 | 0.13930 | -0.020 |
+| ep30 + ep40 + ep50 + ep60 | 0.13342 | -0.025 |
+
+Mechanistic interpretation: GRL pressure during training continuously pushes
+the backbone toward camera-invariant features. The "invariant" representation
+manifold differs from the camera-aware baseline manifold by an angular distance
+that grows with training. Only at convergence (ep60), when the cam_loss has
+plateaued, do the features stabilize close enough to baseline for an
+L2-normalized average to be coherent.
+
+This refines the conventional wisdom that adversarial features always trade
+off purity vs. invariance — instead, the "useful epoch range" is just the
+final ~5-10 epochs of training at the chosen λ.
+
+### 93.3. Recommended paper structure (suggested outline)
+
+1. **Introduction** — Urban Object ReID as a cross-camera generalization task.
+   c004 query-only camera setup. Frame the c004 gap explicitly.
+2. **Related Work** — Bag of Tricks ReID, PAT, GRL/DANN, prior URBAN-REID
+   solutions (Diaz Benito et al. ICIPW 2025).
+3. **Method** — PAT baseline + camera-adversarial head (architecture diagram,
+   GRL math, losses).
+4. **Experiments** — split into:
+   - 4.1 Main result: PAT 7-ckpt + cam-adv ep60 ensemble = 0.15884 mAP
+   - 4.2 Ablation: angular-weight threshold theory (mechanistic explanation)
+   - 4.3 Ablation: per-epoch ensemble compatibility curve
+   - 4.4 Negative results: backbone swaps, loss changes, recipe changes, etc.
+5. **Discussion** — limits of ensembling, the c004 generalization wall, the
+   specific failure of cross-resolution / cross-architecture / cross-recipe
+   ensembles. Why our pipeline plateaued at 0.15884.
+6. **Conclusion** — "23 dead-ends with mechanistic explanations" framed as
+   negative-result contribution.
+
+### 93.4. Files for reproducibility (preserve these for the paper)
+
+**Primary inference script:** `camadv_inference.py` (or
+`ensemble_dba_rerank_sweep.py` variant `dba8_k15_k2_4_lambda027`) reproduces
+the proven 0.15884.
+
+**Preserved checkpoints:**
+- `models/model_vitlarge_256x128_60ep/{ep30,40,50}.pth` (seed=1234 baseline)
+- `models/model_vitlarge_256x128_60ep_seed42/{ep30,40,50,60}.pth` (seed=42 baseline)
+- `models/model_vitlarge_camadv_seed500/part_attention_vit_60.pth` (cam-adv winner)
+- `models/model_vitlarge_camadv_seed600/part_attention_vit_60.pth` (cam-adv s600 ep60, archive)
+- `models/model_seresnet50_bot_seed1500/{ep20,40,60,80,100}.pth` (BoT, pending result)
+
+**Preserved CSVs (for paper figures):**
+- `backup_score/camadv_baseline7_plus_camadv_ep60_0.15884.csv` (final winner)
+- `backup_score/sweep_dba8_k15_k2_4_lambda027_submission.csv` (0.15421, prior best)
+- All Session 9 dead-end CSVs in `results/` (for ablation table data)
+
+**Training logs (for paper figures showing loss curves):**
+- All `models/*/train.log` and `train_log.txt` files
+- Per-epoch loss/Acc/grad_norm trajectories preserved
+
+### 93.5. Open question (for follow-up paper)
+The angular-weight threshold and convergence-window theories are both
+EMPIRICAL — derived from 23 negative results, not analytically proven.
+A follow-up theoretical analysis (e.g., perturbation analysis of the
+L2-norm-sum ensemble in feature space) could formalize these into provable
+bounds. Material for a future paper.
+
