@@ -838,6 +838,21 @@ def part_attention_vit_large_p14_eva(img_size=(224, 112), stride_size=14, drop_r
 
     return model
 
+
+def part_attention_vit_huge_p14(img_size=(252, 126), stride_size=14, drop_rate=0.0, attn_drop_rate=0.0, drop_path_rate=0.1, **kwargs):
+    """ViT-H/14 (Huge) — 632M params, 32 blocks, 1280-d hidden, 16 heads.
+
+    Designed to load timm's `vit_huge_patch14_224` weights (ImageNet-21k
+    pretrain). NO LayerScale (standard vit_huge_patch14_224 from timm doesn't
+    use it). Input 252×126 (18×14 by 9×14) — divisible by 14, 2:1 aspect.
+    """
+    kwargs.setdefault('layer_scale_init_value', None)  # standard ViT-H/14 doesn't use LayerScale
+    model = part_Attention_ViT(
+        img_size=img_size, patch_size=14, stride_size=stride_size, embed_dim=1280, depth=32, num_heads=16, mlp_ratio=4, qkv_bias=True,
+        drop_path_rate=drop_path_rate, drop_rate=drop_rate, attn_drop_rate=attn_drop_rate,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+    return model
+
 def part_attention_vit_base(img_size=(256, 128), stride_size=16, drop_rate=0.0, attn_drop_rate=0.0, drop_path_rate=0.1, **kwargs):
     model = part_Attention_ViT(
         img_size=img_size, patch_size=16, stride_size=stride_size, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True,\

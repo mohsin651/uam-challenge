@@ -1,0 +1,61 @@
+MODEL:
+  PRETRAIN_CHOICE: 'imagenet'
+  PRETRAIN_PATH: '/workspace/miuam_challenge_diff/pretrained'
+  IF_LABELSMOOTH: 'on'
+  IF_WITH_CENTER: 'no'
+  NAME: 'part_attention_vit'
+  NO_MARGIN: True
+  DEVICE_ID: ('0')
+  TRANSFORMER_TYPE: 'vit_huge_patch14_TransReID'   # ViT-Huge/14, 632M params
+  STRIDE_SIZE: [14, 14]
+
+INPUT:
+  SIZE_TRAIN: [252, 126]    # 18×14 by 9×14, divisible by patch=14
+  SIZE_TEST: [252, 126]
+  REA:
+    ENABLED: False
+  PIXEL_MEAN: [0.5, 0.5, 0.5]    # match proven PAT-L recipe
+  PIXEL_STD: [0.5, 0.5, 0.5]
+  LGT:
+    DO_LGT: True
+    PROB: 0.5
+
+DATASETS:
+  TRAIN: ('UrbanElementsReID',)
+  TEST: ('UrbanElementsReID_test',)
+  ROOT_DIR: '/workspace/Urban2026/'
+
+DATALOADER:
+  SAMPLER: 'softmax_triplet'
+  NUM_INSTANCE: 4
+  NUM_WORKERS: 8
+
+SOLVER:
+  OPTIMIZER_NAME: 'Adam'
+  MAX_EPOCHS: 40
+  BASE_LR: 0.00035          # same as proven ViT-L baseline
+  WARMUP_METHOD: 'linear'
+  WARMUP_EPOCHS: 7
+  WARMUP_FACTOR: 0.01
+  IMS_PER_BATCH: 24         # halved from 64 — VRAM safety for 632M ViT-H
+  LARGE_FC_LR: False
+  CHECKPOINT_PERIOD: 10     # save ep20/40/60 only (3 ckpts × 2.4 GB = 7.2 GB)
+  LOG_PERIOD: 60
+  EVAL_PERIOD: 10
+  WEIGHT_DECAY: 1e-4
+  WEIGHT_DECAY_BIAS: 1e-4
+  BIAS_LR_FACTOR: 2
+  SEED: 1800
+  GRAD_CLIP: 1.0            # mandatory per CLAUDE.md (esp. for big ViT)
+
+TEST:
+  EVAL: True
+  IMS_PER_BATCH: 24
+  RE_RANKING: False
+  WEIGHT: ''
+  NECK_FEAT: 'before'
+  FEAT_NORM: True
+
+LOG_ROOT: 'models/'
+TB_LOG_ROOT: './tb_log/'
+LOG_NAME: './model_vit_huge_p14_seed1800'

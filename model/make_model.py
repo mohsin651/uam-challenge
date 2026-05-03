@@ -2,7 +2,7 @@ import logging
 import os
 import random
 # from threading import local
-from model.backbones.vit_pytorch import deit_tiny_patch16_224_TransReID, part_attention_deit_small, part_attention_deit_tiny, part_attention_vit_base, part_attention_vit_base_p32, part_attention_vit_large, part_attention_vit_large_p14, part_attention_vit_large_p14_eva, part_attention_vit_small, vit_base_patch32_224_TransReID, vit_large_patch16_224_TransReID
+from model.backbones.vit_pytorch import deit_tiny_patch16_224_TransReID, part_attention_deit_small, part_attention_deit_tiny, part_attention_vit_base, part_attention_vit_base_p32, part_attention_vit_large, part_attention_vit_large_p14, part_attention_vit_large_p14_eva, part_attention_vit_huge_p14, part_attention_vit_small, vit_base_patch32_224_TransReID, vit_large_patch16_224_TransReID
 import torch
 import torch.nn as nn
 
@@ -20,6 +20,7 @@ imagenet_path_name = {
     'vit_large_patch16_224_TransReID': 'jx_vit_large_p16_224-4ee7a4dc.pth',
     'vit_large_patch14_dinov2_TransReID': 'dinov2_vitl14_pretrain.pth',
     'vit_large_patch14_eva_TransReID': 'eva_large_patch14_196.pth',
+    'vit_huge_patch14_TransReID': 'vit_huge_patch14_224.pth',
     'vit_base_patch16_224_TransReID': 'jx_vit_base_p16_224-80ecf9dd.pth',
     'vit_base_patch32_224_TransReID': 'jx_vit_base_patch32_224_in21k-8db57226.pth',
     'deit_base_patch16_224_TransReID': 'deit_base_distilled_patch16_224-df68dfff.pth',
@@ -199,6 +200,8 @@ class build_vit(nn.Module):
             self.in_planes = 1024
         elif cfg.MODEL.TRANSFORMER_TYPE == 'vit_large_patch14_eva_TransReID':
             self.in_planes = 1024
+        elif cfg.MODEL.TRANSFORMER_TYPE == 'vit_huge_patch14_TransReID':
+            self.in_planes = 1280
         if self.pretrain_choice == 'imagenet':
             self.base.load_param(self.model_path)
             print('Loading pretrained ImageNet model......from {}'.format(self.model_path))
@@ -284,6 +287,8 @@ class build_part_attention_vit(nn.Module):
             self.in_planes = 1024
         elif cfg.MODEL.TRANSFORMER_TYPE == 'vit_large_patch14_eva_TransReID':
             self.in_planes = 1024
+        elif cfg.MODEL.TRANSFORMER_TYPE == 'vit_huge_patch14_TransReID':
+            self.in_planes = 1280
         if self.pretrain_choice == 'imagenet':
             self.base.load_param(self.model_path)
             print('Loading pretrained ImageNet model......from {}'.format(self.model_path))
@@ -399,6 +404,7 @@ __factory_LAT_type = {
     'vit_large_patch16_224_TransReID': part_attention_vit_large,
     'vit_large_patch14_dinov2_TransReID': part_attention_vit_large_p14,
     'vit_large_patch14_eva_TransReID': part_attention_vit_large_p14_eva,
+    'vit_huge_patch14_TransReID': part_attention_vit_huge_p14,
     'vit_base_patch16_224_TransReID': part_attention_vit_base,
     'vit_base_patch32_224_TransReID': part_attention_vit_base_p32,
     'deit_base_patch16_224_TransReID': part_attention_vit_base,
