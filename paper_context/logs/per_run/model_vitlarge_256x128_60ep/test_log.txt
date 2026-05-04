@@ -1,0 +1,20 @@
+2026-04-25 11:18:49,866 PAT INFO: Namespace(config_file='config/UrbanElementsReID_test.yml', track='results/ensemble_3seeds_ema', opts=[])
+2026-04-25 11:18:49,866 PAT INFO: Ensemble checkpoints: ['/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep/part_attention_vit_30.pth', '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep/part_attention_vit_40.pth', '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep/part_attention_vit_50.pth', '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_30.pth', '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_40.pth', '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_50.pth', '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed42/part_attention_vit_60.pth', '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed100_ema/part_attention_vit_30.pth', '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed100_ema/part_attention_vit_40.pth', '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed100_ema/part_attention_vit_50.pth', '/workspace/miuam_challenge_diff/models/model_vitlarge_256x128_60ep_seed100_ema/part_attention_vit_60.pth']
+2026-04-25 11:18:49,954 PAT INFO: => Loaded UrbanElementsReID_test
+2026-04-25 11:18:49,954 PAT INFO:   ----------------------------------------
+2026-04-25 11:18:49,954 PAT INFO:   subset   | # ids | # images | # cameras
+2026-04-25 11:18:49,954 PAT INFO:   ----------------------------------------
+2026-04-25 11:18:49,954 PAT INFO:   query    |     1 |      928 |         1
+2026-04-25 11:18:49,954 PAT INFO:   gallery  |     1 |     2844 |         3
+2026-04-25 11:18:49,954 PAT INFO:   ----------------------------------------
+2026-04-25 11:18:57,496 PAT.train INFO: Number of parameter: 304.27M
+2026-04-25 11:19:27,812 PAT.train INFO: Number of parameter: 304.27M
+2026-04-25 11:19:57,338 PAT.train INFO: Number of parameter: 304.27M
+2026-04-25 11:20:26,557 PAT.train INFO: Number of parameter: 304.27M
+2026-04-25 11:20:56,919 PAT.train INFO: Number of parameter: 304.27M
+2026-04-25 11:21:26,361 PAT.train INFO: Number of parameter: 304.27M
+2026-04-25 11:21:55,978 PAT.train INFO: Number of parameter: 304.27M
+2026-04-25 11:22:25,289 PAT.train INFO: Number of parameter: 304.27M
+2026-04-25 11:22:54,401 PAT.train INFO: Number of parameter: 304.27M
+2026-04-25 11:23:24,889 PAT.train INFO: Number of parameter: 304.27M
+2026-04-25 11:23:55,371 PAT.train INFO: Number of parameter: 304.27M
