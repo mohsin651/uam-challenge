@@ -5,6 +5,8 @@ All unused datasets (Market1501, DukeMTMC, VeRi, …), unused processors, and
 unused configs have been stripped. Everything below is required to reproduce
 the **0.12072** Kaggle submission.
 
+## Contributors: Mohsin Imam, Shihab Muhtasim
+
 ## Layout
 
 ```
